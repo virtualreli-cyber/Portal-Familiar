@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Local environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+*.sw?
+
+# Scripts (no hace falta subir)
+scripts/
+
+# Versiones anteriores del proyecto (carpetas legacy)
+Portal familiar 1/
+Portal familiar 2/
+Portal familiar 3/
+Portal familiar 4/
+Portal familiar 5/
+
