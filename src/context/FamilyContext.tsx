@@ -15,21 +15,13 @@ import {
   ActiveTab,
   RewardRequest,
   CustomTaskList,
-  AnniversaryItem
+  AnniversaryItem,
+  WeddingTask,
+  WeddingNote
 } from '../types';
-import { 
-  INITIAL_EVENTS, 
-  INITIAL_TASKS, 
-  INITIAL_SHOPPING_ITEMS, 
-  INITIAL_MEAL_PLAN, 
-  INITIAL_BIRTHDAYS, 
-  INITIAL_NOTES, 
-  INITIAL_EXPENSES, 
-  INITIAL_EMERGENCY_CONTACTS, 
-  INITIAL_INTENTIONS,
-  INITIAL_REWARDS
-} from '../data/mockData';
-import { loadLocalData, saveLocalData, supabase, sbUpsert, sbDelete, sbUpsertMany, sbFetch, sbGetConfig, sbSetConfig } from '../lib/supabase';
+import { INITIAL_REWARDS } from '../data/mockData';
+import { supabase, sbUpsert, sbDelete, sbFetch, sbGetConfig, sbSetConfig, loadLocalData, saveLocalData } from '../lib/supabase';
+import { subscribeRealtime, broadcastRealtime } from '../lib/realtimeSync';
 import { useAuth } from './AuthContext';
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
@@ -74,12 +66,30 @@ interface FamilyContextType {
   rewards: RewardItem[];
   rewardRequests: RewardRequest[];
   customTaskLists: CustomTaskList[];
+  weddingTasks: WeddingTask[];
+  weddingNotes: WeddingNote[];
   sectionVisibility: Record<ActiveTab, boolean>;
   customCategories: typeof DEFAULT_CATEGORIES;
   menuOrder: ActiveTab[];
 
+  // WiFi (stored in app_config)
+  wifiSSID: string;
+  wifiPass: string;
+  updateWifi: (ssid: string, pass: string) => void;
+
+  // Data loaded flag
+  dataLoaded: boolean;
+
   addAnniversary: (anniversary: Omit<AnniversaryItem, 'id'>) => void;
   deleteAnniversary: (id: string) => void;
+
+  addWeddingTask: (task: Omit<WeddingTask, 'id' | 'completed'>) => void;
+  toggleWeddingTask: (id: string) => void;
+  editWeddingTask: (id: string, updated: Partial<WeddingTask>) => void;
+  deleteWeddingTask: (id: string) => void;
+  addWeddingNote: (note: Omit<WeddingNote, 'id'>) => void;
+  editWeddingNote: (id: string, updated: Partial<WeddingNote>) => void;
+  deleteWeddingNote: (id: string) => void;
 
   reorderMenuSections: (newOrder: ActiveTab[]) => void;
   updateSectionVisibility: (tab: ActiveTab, visible: boolean) => void;
@@ -118,8 +128,9 @@ interface FamilyContextType {
 
   updateMealPlanDay: (dayKey: string, meals: Partial<WeeklyMealPlan[string]>) => void;
 
-  addBirthday: (birthday: Omit<BirthdayItem, 'id' | 'giftIdeas'>) => void;
+  addBirthday: (bday: Omit<BirthdayItem, 'id' | 'giftIdeas'>) => void;
   deleteBirthday: (id: string) => void;
+  updateBirthdayById: (id: string, patch: Partial<BirthdayItem>) => void;
   addGiftIdea: (birthdayId: string, titleOrObj: string | Omit<GiftIdea, 'id'>, cost?: number) => void;
   updateGiftIdeaStatus: (birthdayId: string, giftId: string, status: GiftIdea['status']) => void;
   toggleGiftStatus: (birthdayId: string, giftId: string) => void;
@@ -276,181 +287,393 @@ const fromTaskListRow = (r: Record<string,unknown>): CustomTaskList => ({
   id: r.id as string, name: r.name as string, categories: (r.categories as string[])||[]
 });
 
+const toWeddingTaskRow = (t: WeddingTask) => ({
+  id: t.id, title: t.title, category: t.category, completed: t.completed
+});
+const fromWeddingTaskRow = (r: Record<string,unknown>): WeddingTask => ({
+  id: r.id as string, title: r.title as string,
+  category: (r.category as string)||'General', completed: (r.completed as boolean)||false
+});
+
+const toWeddingNoteRow = (n: WeddingNote) => ({
+  id: n.id, title: n.title, content: n.content, author: n.author, date: n.date
+});
+const fromWeddingNoteRow = (r: Record<string,unknown>): WeddingNote => ({
+  id: r.id as string, title: (r.title as string)||'Nota de Boda',
+  content: (r.content as string)||'', author: (r.author as string)||'',
+  date: (r.date as string)||''
+});
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { allMembers, updateMemberDetails } = useAuth();
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  const [familyName, setFamilyNameState] = useState<string>(() => loadLocalData('fam_name', 'Familia Santos'));
-  const [darkMode, setDarkModeState] = useState<boolean>(() => loadLocalData('fam_dark_mode', false));
-  const [themeColor, setThemeColorState] = useState<string>(() => loadLocalData('fam_theme_color', 'indigo'));
+  // ── State — All start empty; Supabase is the single source of truth ────────
+  const [familyName, setFamilyNameState] = useState<string>('');
+  const [darkMode, setDarkModeState] = useState<boolean>(false);
+  const [themeColor, setThemeColorState] = useState<string>('indigo');
 
-  const [events, setEvents] = useState<CalendarEvent[]>(() => loadLocalData('events', INITIAL_EVENTS));
-  const [tasks, setTasks] = useState<TaskItem[]>(() => loadLocalData('tasks', INITIAL_TASKS));
-  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(() => loadLocalData('shopping', INITIAL_SHOPPING_ITEMS));
-  const [mealPlan, setMealPlan] = useState<WeeklyMealPlan>(() => loadLocalData('meals', INITIAL_MEAL_PLAN));
-  const [birthdays, setBirthdays] = useState<BirthdayItem[]>(() => loadLocalData('birthdays', INITIAL_BIRTHDAYS));
-  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>(() => loadLocalData('notes', INITIAL_NOTES));
-  const [expenses, setExpenses] = useState<ExpenseItem[]>(() => loadLocalData('expenses', INITIAL_EXPENSES));
-  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>(() => loadLocalData('contacts', INITIAL_EMERGENCY_CONTACTS));
-  const [intentions, setIntentions] = useState<CatholicIntention[]>(() => loadLocalData('intentions', INITIAL_INTENTIONS));
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
+  const [mealPlan, setMealPlan] = useState<WeeklyMealPlan>({});
+  const [birthdays, setBirthdays] = useState<BirthdayItem[]>([]);
+  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
+  const [intentions, setIntentions] = useState<CatholicIntention[]>([]);
   const [rewards] = useState<RewardItem[]>(INITIAL_REWARDS);
-  const [rewardRequests, setRewardRequests] = useState<RewardRequest[]>(() => loadLocalData('reward_requests', []));
-  const [customTaskLists, setCustomTaskLists] = useState<CustomTaskList[]>(() =>
-    loadLocalData('custom_task_lists', [{ id: 'general', name: 'Tareas del Hogar', categories: DEFAULT_CATEGORIES.tasks }])
-  );
-  const [anniversaries, setAnniversaries] = useState<AnniversaryItem[]>(() => loadLocalData('anniversaries', [
-    { id: 'ann_1', memberIds: [], title: 'Aniversario de Boda', type: 'Boda', date: '2012-08-15' },
-  ]));
-  const [sectionVisibility, setSectionVisibility] = useState<Record<ActiveTab, boolean>>(() =>
-    loadLocalData('section_visibility', DEFAULT_SECTION_VISIBILITY)
-  );
-  const [customCategories, setCustomCategories] = useState(() =>
-    loadLocalData('custom_categories', DEFAULT_CATEGORIES)
-  );
-  const [menuOrder, setMenuOrderState] = useState<ActiveTab[]>(() =>
-    loadLocalData('menu_order', DEFAULT_MENU_ORDER)
-  );
+  const [rewardRequests, setRewardRequests] = useState<RewardRequest[]>([]);
+  const [customTaskLists, setCustomTaskLists] = useState<CustomTaskList[]>([]);
+  const [anniversaries, setAnniversaries] = useState<AnniversaryItem[]>([]);
+  const [weddingTasks, setWeddingTasks] = useState<WeddingTask[]>([]);
+  const [weddingNotes, setWeddingNotes] = useState<WeddingNote[]>([]);
+  const [sectionVisibility, setSectionVisibility] = useState<Record<ActiveTab, boolean>>(DEFAULT_SECTION_VISIBILITY);
+  const [customCategories, setCustomCategories] = useState(DEFAULT_CATEGORIES);
+  const [menuOrder, setMenuOrderState] = useState<ActiveTab[]>(DEFAULT_MENU_ORDER);
+  const [wifiSSID, setWifiSSID] = useState<string>('');
+  const [wifiPass, setWifiPass] = useState<string>('');
+  const [dataLoaded, setDataLoaded] = useState(false);
 
-  // ── Load ALL data from Supabase on mount ─────────────────────────────────
+  // ── Load ALL data from Supabase ──────────────────────────────────────────
+  const loadAllFromSupabase = useCallback(async () => {
+    try {
+      const [
+        evRows, taskRows, shopRows, noteRows, expRows, contactRows,
+        intentionRows, annRows, bdayRows, rrRows, listRows, wTaskRows, wNoteRows
+      ] = await Promise.all([
+        sbFetch<Record<string,unknown>>('calendar_events'),
+        sbFetch<Record<string,unknown>>('tasks'),
+        sbFetch<Record<string,unknown>>('shopping_items'),
+        sbFetch<Record<string,unknown>>('sticky_notes'),
+        sbFetch<Record<string,unknown>>('expenses'),
+        sbFetch<Record<string,unknown>>('emergency_contacts'),
+        sbFetch<Record<string,unknown>>('catholic_intentions'),
+        sbFetch<Record<string,unknown>>('anniversaries'),
+        sbFetch<Record<string,unknown>>('birthdays'),
+        sbFetch<Record<string,unknown>>('reward_requests'),
+        sbFetch<Record<string,unknown>>('custom_task_lists'),
+        sbFetch<Record<string,unknown>>('wedding_tasks'),
+        sbFetch<Record<string,unknown>>('wedding_notes'),
+      ]);
+
+      // Set state from Supabase — if table is empty, state becomes empty array []
+      setEvents(evRows.map(fromEventRow));
+      setTasks(taskRows.map(fromTaskRow));
+      setShoppingItems(shopRows.map(fromShopRow));
+      setStickyNotes(noteRows.map(fromNoteRow));
+      setExpenses(expRows.map(fromExpenseRow));
+      setEmergencyContacts(contactRows.map(fromContactRow));
+      setIntentions(intentionRows.map(fromIntentionRow));
+      setAnniversaries(annRows.map(fromAnniversaryRow));
+      setBirthdays(bdayRows.map(fromBirthdayRow));
+      setRewardRequests(rrRows.map(fromRewardRequestRow));
+      setCustomTaskLists(listRows.map(fromTaskListRow));
+      setWeddingTasks(wTaskRows.map(fromWeddingTaskRow));
+      setWeddingNotes(wNoteRows.map(fromWeddingNoteRow));
+
+      // App config
+      const [cfgFamName, cfgDark, cfgTheme, cfgCats, cfgVis, cfgMenuOrder, cfgWifiSSID, cfgWifiPass] = await Promise.all([
+        sbGetConfig('fam_name'),
+        sbGetConfig('fam_dark_mode'),
+        sbGetConfig('fam_theme_color'),
+        sbGetConfig('custom_categories'),
+        sbGetConfig('section_visibility'),
+        sbGetConfig('menu_order'),
+        sbGetConfig('wifi_ssid'),
+        sbGetConfig('wifi_pass'),
+      ]);
+      if (cfgFamName) setFamilyNameState(cfgFamName as string);
+      if (cfgDark !== null) setDarkModeState(cfgDark as boolean);
+      if (cfgTheme) setThemeColorState(cfgTheme as string);
+      if (cfgCats) setCustomCategories(cfgCats as typeof DEFAULT_CATEGORIES);
+      if (cfgVis) setSectionVisibility(cfgVis as Record<ActiveTab, boolean>);
+      if (cfgMenuOrder) setMenuOrderState(cfgMenuOrder as ActiveTab[]);
+      if (cfgWifiSSID) setWifiSSID(cfgWifiSSID as string);
+      if (cfgWifiPass) setWifiPass(cfgWifiPass as string);
+
+      // Meal plan
+      const mealRows = await sbFetch<Record<string,unknown>>('meal_plans');
+      const plan: WeeklyMealPlan = {};
+      mealRows.forEach(r => {
+        plan[r.day_key as string] = {
+          breakfast: (r.breakfast as string)||'', lunch: (r.lunch as string)||'',
+          snack: (r.snack as string)||'', dinner: (r.dinner as string)||'',
+          notes: r.notes as string|undefined
+        };
+      });
+      setMealPlan(plan);
+    } catch (e) {
+      console.warn('Error loading from Supabase:', e);
+    } finally {
+      setDataLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
-    async function loadAllFromSupabase() {
-      try {
-        const [
-          evRows, taskRows, shopRows, noteRows, expRows, contactRows,
-          intentionRows, annRows, bdayRows, rrRows, listRows
-        ] = await Promise.all([
-          sbFetch<Record<string,unknown>>('calendar_events'),
-          sbFetch<Record<string,unknown>>('tasks'),
-          sbFetch<Record<string,unknown>>('shopping_items'),
-          sbFetch<Record<string,unknown>>('sticky_notes'),
-          sbFetch<Record<string,unknown>>('expenses'),
-          sbFetch<Record<string,unknown>>('emergency_contacts'),
-          sbFetch<Record<string,unknown>>('catholic_intentions'),
-          sbFetch<Record<string,unknown>>('anniversaries'),
-          sbFetch<Record<string,unknown>>('birthdays'),
-          sbFetch<Record<string,unknown>>('reward_requests'),
-          sbFetch<Record<string,unknown>>('custom_task_lists'),
-        ]);
+    loadAllFromSupabase();
 
-        if (evRows.length > 0) { const d = evRows.map(fromEventRow); setEvents(d); saveLocalData('events', d); }
-        else { sbUpsertMany('calendar_events', INITIAL_EVENTS.map(toEventRow as any)); }
-
-        if (taskRows.length > 0) { const d = taskRows.map(fromTaskRow); setTasks(d); saveLocalData('tasks', d); }
-        else { sbUpsertMany('tasks', INITIAL_TASKS.map(toTaskRow as any)); }
-
-        if (shopRows.length > 0) { const d = shopRows.map(fromShopRow); setShoppingItems(d); saveLocalData('shopping', d); }
-        else { sbUpsertMany('shopping_items', INITIAL_SHOPPING_ITEMS.map(toShopRow as any)); }
-
-        if (noteRows.length > 0) { const d = noteRows.map(fromNoteRow); setStickyNotes(d); saveLocalData('notes', d); }
-        else { sbUpsertMany('sticky_notes', INITIAL_NOTES.map(toNoteRow as any)); }
-
-        if (expRows.length > 0) { const d = expRows.map(fromExpenseRow); setExpenses(d); saveLocalData('expenses', d); }
-        else { sbUpsertMany('expenses', INITIAL_EXPENSES.map(toExpenseRow as any)); }
-
-        if (contactRows.length > 0) { const d = contactRows.map(fromContactRow); setEmergencyContacts(d); saveLocalData('contacts', d); }
-        else { sbUpsertMany('emergency_contacts', INITIAL_EMERGENCY_CONTACTS.map(toContactRow as any)); }
-
-        if (intentionRows.length > 0) { const d = intentionRows.map(fromIntentionRow); setIntentions(d); saveLocalData('intentions', d); }
-        else { sbUpsertMany('catholic_intentions', INITIAL_INTENTIONS.map(toIntentionRow as any)); }
-
-        if (annRows.length > 0) { const d = annRows.map(fromAnniversaryRow); setAnniversaries(d); saveLocalData('anniversaries', d); }
-
-        if (bdayRows.length > 0) { const d = bdayRows.map(fromBirthdayRow); setBirthdays(d); saveLocalData('birthdays', d); }
-        else { sbUpsertMany('birthdays', INITIAL_BIRTHDAYS.map(toBirthdayRow as any)); }
-
-        if (rrRows.length > 0) { const d = rrRows.map(fromRewardRequestRow); setRewardRequests(d); saveLocalData('reward_requests', d); }
-
-        if (listRows.length > 0) { const d = listRows.map(fromTaskListRow); setCustomTaskLists(d); saveLocalData('custom_task_lists', d); }
-
-        // App config
-        const [cfgFamName, cfgDark, cfgTheme, cfgCats, cfgVis, cfgMenuOrder] = await Promise.all([
-          sbGetConfig('fam_name'),
-          sbGetConfig('fam_dark_mode'),
-          sbGetConfig('fam_theme_color'),
-          sbGetConfig('custom_categories'),
-          sbGetConfig('section_visibility'),
-          sbGetConfig('menu_order'),
-        ]);
-        if (cfgFamName) { setFamilyNameState(cfgFamName as string); saveLocalData('fam_name', cfgFamName); }
-        if (cfgDark !== null) { setDarkModeState(cfgDark as boolean); }
-        if (cfgTheme) { setThemeColorState(cfgTheme as string); }
-        if (cfgCats) { setCustomCategories(cfgCats as typeof DEFAULT_CATEGORIES); }
-        if (cfgVis) { setSectionVisibility(cfgVis as Record<ActiveTab, boolean>); }
-        if (cfgMenuOrder) { setMenuOrderState(cfgMenuOrder as ActiveTab[]); }
-
-        // Meal plan
-        const mealRows = await sbFetch<Record<string,unknown>>('meal_plans');
-        if (mealRows.length > 0) {
-          const plan: WeeklyMealPlan = {};
-          mealRows.forEach(r => {
-            plan[r.day_key as string] = {
-              breakfast: (r.breakfast as string)||'', lunch: (r.lunch as string)||'',
-              snack: (r.snack as string)||'', dinner: (r.dinner as string)||'',
-              notes: r.notes as string|undefined
-            };
-          });
-          setMealPlan(plan);
-          saveLocalData('meals', plan);
-        } else {
-          const rows = Object.entries(INITIAL_MEAL_PLAN).map(([day_key, meal]) => ({
-            id: `meal_${day_key}`, day_key,
-            breakfast: meal.breakfast, lunch: meal.lunch,
-            snack: meal.snack, dinner: meal.dinner, notes: meal.notes
-          }));
-          sbUpsertMany('meal_plans', rows as any);
-        }
-      } catch (e) {
-        console.warn('Error loading from Supabase, using local fallback:', e);
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadAllFromSupabase();
       }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [loadAllFromSupabase]);
+
+  // ── Realtime Subscriptions — Full sync across all devices ─────────────────
+  useEffect(() => {
+    const handlePayload = (table: string, eventType: string, newRow?: Record<string, unknown>, oldRow?: Record<string, unknown>) => {
+      switch (table) {
+        case 'calendar_events':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromEventRow(newRow);
+            setEvents(prev => {
+              const idx = prev.findIndex(e => e.id === item.id);
+              return idx >= 0 ? prev.map(e => e.id === item.id ? item : e) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setEvents(prev => prev.filter(e => e.id !== oldRow.id));
+          }
+          break;
+        case 'tasks':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromTaskRow(newRow);
+            setTasks(prev => {
+              const idx = prev.findIndex(t => t.id === item.id);
+              return idx >= 0 ? prev.map(t => t.id === item.id ? item : t) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setTasks(prev => prev.filter(t => t.id !== oldRow.id));
+          }
+          break;
+        case 'shopping_items':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromShopRow(newRow);
+            setShoppingItems(prev => {
+              const idx = prev.findIndex(s => s.id === item.id);
+              return idx >= 0 ? prev.map(s => s.id === item.id ? item : s) : [item, ...prev];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setShoppingItems(prev => prev.filter(s => s.id !== oldRow.id));
+          }
+          break;
+        case 'sticky_notes':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromNoteRow(newRow);
+            setStickyNotes(prev => {
+              const idx = prev.findIndex(n => n.id === item.id);
+              return idx >= 0 ? prev.map(n => n.id === item.id ? item : n) : [item, ...prev];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setStickyNotes(prev => prev.filter(n => n.id !== oldRow.id));
+          }
+          break;
+        case 'expenses':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromExpenseRow(newRow);
+            setExpenses(prev => {
+              const idx = prev.findIndex(e => e.id === item.id);
+              return idx >= 0 ? prev.map(e => e.id === item.id ? item : e) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setExpenses(prev => prev.filter(e => e.id !== oldRow.id));
+          }
+          break;
+        case 'emergency_contacts':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromContactRow(newRow);
+            setEmergencyContacts(prev => {
+              const idx = prev.findIndex(c => c.id === item.id);
+              return idx >= 0 ? prev.map(c => c.id === item.id ? item : c) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setEmergencyContacts(prev => prev.filter(c => c.id !== oldRow.id));
+          }
+          break;
+        case 'catholic_intentions':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromIntentionRow(newRow);
+            setIntentions(prev => {
+              const idx = prev.findIndex(i => i.id === item.id);
+              return idx >= 0 ? prev.map(i => i.id === item.id ? item : i) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setIntentions(prev => prev.filter(i => i.id !== oldRow.id));
+          }
+          break;
+        case 'anniversaries':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromAnniversaryRow(newRow);
+            setAnniversaries(prev => {
+              const idx = prev.findIndex(a => a.id === item.id);
+              return idx >= 0 ? prev.map(a => a.id === item.id ? item : a) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setAnniversaries(prev => prev.filter(a => a.id !== oldRow.id));
+          }
+          break;
+        case 'birthdays':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromBirthdayRow(newRow);
+            setBirthdays(prev => {
+              const idx = prev.findIndex(b => b.id === item.id);
+              return idx >= 0 ? prev.map(b => b.id === item.id ? item : b) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setBirthdays(prev => prev.filter(b => b.id !== oldRow.id));
+          }
+          break;
+        case 'reward_requests':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromRewardRequestRow(newRow);
+            setRewardRequests(prev => {
+              const idx = prev.findIndex(r => r.id === item.id);
+              return idx >= 0 ? prev.map(r => r.id === item.id ? item : r) : [item, ...prev];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setRewardRequests(prev => prev.filter(r => r.id !== oldRow.id));
+          }
+          break;
+        case 'custom_task_lists':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromTaskListRow(newRow);
+            setCustomTaskLists(prev => {
+              const idx = prev.findIndex(l => l.id === item.id);
+              return idx >= 0 ? prev.map(l => l.id === item.id ? item : l) : [...prev, item];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setCustomTaskLists(prev => prev.filter(l => l.id !== oldRow.id));
+          }
+          break;
+        case 'wedding_tasks':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromWeddingTaskRow(newRow);
+            setWeddingTasks(prev => {
+              const idx = prev.findIndex(t => t.id === item.id);
+              return idx >= 0 ? prev.map(t => t.id === item.id ? item : t) : [item, ...prev];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setWeddingTasks(prev => prev.filter(t => t.id !== oldRow.id));
+          }
+          break;
+        case 'wedding_notes':
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const item = fromWeddingNoteRow(newRow);
+            setWeddingNotes(prev => {
+              const idx = prev.findIndex(n => n.id === item.id);
+              return idx >= 0 ? prev.map(n => n.id === item.id ? item : n) : [item, ...prev];
+            });
+          } else if (eventType === 'DELETE' && oldRow?.id) {
+            setWeddingNotes(prev => prev.filter(n => n.id !== oldRow.id));
+          }
+          break;
+        case 'meal_plans': {
+          if ((eventType === 'INSERT' || eventType === 'UPDATE') && newRow) {
+            const r = newRow;
+            setMealPlan(prev => ({
+              ...prev,
+              [r.day_key as string]: {
+                breakfast: (r.breakfast as string)||'',
+                lunch: (r.lunch as string)||'',
+                snack: (r.snack as string)||'',
+                dinner: (r.dinner as string)||'',
+                notes: r.notes as string|undefined
+              }
+            }));
+          }
+          break;
+        }
+        case 'app_config': {
+          const cfg = newRow as Record<string, unknown> | null;
+          if (cfg?.key === 'fam_name' && cfg?.value) setFamilyNameState(cfg.value as string);
+          if (cfg?.key === 'fam_dark_mode' && cfg?.value !== undefined) setDarkModeState(cfg.value as boolean);
+          if (cfg?.key === 'fam_theme_color' && cfg?.value) setThemeColorState(cfg.value as string);
+          if (cfg?.key === 'custom_categories' && cfg?.value) setCustomCategories(cfg.value as typeof DEFAULT_CATEGORIES);
+          if (cfg?.key === 'section_visibility' && cfg?.value) setSectionVisibility(cfg.value as Record<ActiveTab, boolean>);
+          if (cfg?.key === 'menu_order' && cfg?.value) setMenuOrderState(cfg.value as ActiveTab[]);
+          if (cfg?.key === 'wifi_ssid') setWifiSSID((cfg.value as string)||'');
+          if (cfg?.key === 'wifi_pass') setWifiPass((cfg.value as string)||'');
+          break;
+        }
+      }
+    };
+
+    // 1. Local SSE & BroadcastChannel Subscription
+    const unsubscribeLocal = subscribeRealtime((msg) => {
+      handlePayload(msg.table, msg.eventType, msg.newRow, msg.oldRow);
+    });
+
+    // 2. Supabase Realtime Subscription (if available)
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      channel = supabase
+        .channel('portal_fam_realtime_channel')
+        .on('postgres_changes', { event: '*', schema: 'public', table: '*' }, (payload) => {
+          handlePayload(payload.table, payload.eventType, payload.new as Record<string, unknown>, payload.old as Record<string, unknown>);
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Supabase Realtime not available:', e);
     }
 
-    loadAllFromSupabase();
+    return () => {
+      unsubscribeLocal();
+      if (channel) supabase.removeChannel(channel);
+    };
   }, []);
 
   // ── Dark Mode Sync ────────────────────────────────────────────────────────
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-    saveLocalData('fam_dark_mode', darkMode);
     sbSetConfig('fam_dark_mode', darkMode);
   }, [darkMode]);
-
-  // ── Helpers: sync local + remote ─────────────────────────────────────────
-  const syncConfig = useCallback((key: string, value: unknown) => {
-    saveLocalData(key, value);
-    sbSetConfig(key, value);
-  }, []);
 
   // ── Family name ───────────────────────────────────────────────────────────
   const updateFamilyName = (name: string) => {
     setFamilyNameState(name);
-    syncConfig('fam_name', name);
+    sbSetConfig('fam_name', name);
   };
   const toggleDarkMode = () => setDarkModeState(prev => !prev);
   const setThemeColor = (color: string) => {
     setThemeColorState(color);
-    syncConfig('fam_theme_color', color);
+    sbSetConfig('fam_theme_color', color);
   };
+
+  // ── WiFi ──────────────────────────────────────────────────────────────────
+  const updateWifi = useCallback((ssid: string, pass: string) => {
+    setWifiSSID(ssid);
+    setWifiPass(pass);
+    sbSetConfig('wifi_ssid', ssid);
+    sbSetConfig('wifi_pass', pass);
+  }, []);
 
   // ── Visibility & Menu Order ───────────────────────────────────────────────
   const updateSectionVisibility = (tab: ActiveTab, visible: boolean) => {
     setSectionVisibility(prev => {
       const updated = { ...prev, [tab]: visible };
-      syncConfig('section_visibility', updated);
+      sbSetConfig('section_visibility', updated);
       return updated;
     });
   };
   const reorderMenuSections = (newOrder: ActiveTab[]) => {
     setMenuOrderState(newOrder);
-    syncConfig('menu_order', newOrder);
+    sbSetConfig('menu_order', newOrder);
   };
 
   // ── Categories ────────────────────────────────────────────────────────────
   const updateCategories = (type: 'tasks'|'shopping'|'events', cats: string[]) => {
     setCustomCategories(prev => {
       const updated = { ...prev, [type]: cats };
-      syncConfig('custom_categories', updated);
+      sbSetConfig('custom_categories', updated);
       return updated;
     });
   };
@@ -465,158 +688,199 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     updateCategories(type, ordered);
   };
 
+const generateId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+
   // ── Custom Task Lists ─────────────────────────────────────────────────────
   const addCustomTaskList = (name: string, categories: string[]) => {
     if (!name.trim()) return;
     const newList: CustomTaskList = {
-      id: `ctl_${Date.now()}`, name: name.trim(),
+      id: generateId(), name: name.trim(),
       categories: categories.length ? categories : DEFAULT_CATEGORIES.tasks
     };
-    setCustomTaskLists(prev => {
-      const updated = [...prev, newList];
-      saveLocalData('custom_task_lists', updated);
-      return updated;
-    });
+    setCustomTaskLists(prev => [...prev, newList]);
     sbUpsert('custom_task_lists', toTaskListRow(newList));
   };
   const deleteCustomTaskList = (id: string) => {
-    setCustomTaskLists(prev => {
-      const updated = prev.filter(l => l.id !== id);
-      saveLocalData('custom_task_lists', updated);
-      return updated;
-    });
+    setCustomTaskLists(prev => prev.filter(l => l.id !== id));
     sbDelete('custom_task_lists', id);
   };
 
   // ── Anniversaries ─────────────────────────────────────────────────────────
   const addAnniversary = (ann: Omit<AnniversaryItem,'id'>) => {
-    const newAnn: AnniversaryItem = { ...ann, id: `ann_${Date.now()}` };
-    setAnniversaries(prev => {
-      const updated = [...prev, newAnn];
-      saveLocalData('anniversaries', updated);
-      return updated;
-    });
+    const newAnn: AnniversaryItem = { ...ann, id: generateId() };
+    setAnniversaries(prev => [...prev, newAnn]);
     sbUpsert('anniversaries', toAnniversaryRow(newAnn));
   };
   const deleteAnniversary = (id: string) => {
-    setAnniversaries(prev => {
-      const updated = prev.filter(a => a.id !== id);
-      saveLocalData('anniversaries', updated);
-      return updated;
-    });
+    setAnniversaries(prev => prev.filter(a => a.id !== id));
     sbDelete('anniversaries', id);
+  };
+
+  // ── Wedding Tasks & Notes ──────────────────────────────────────────────────
+  const addWeddingTask = (task: Omit<WeddingTask, 'id' | 'completed'>) => {
+    const newT: WeddingTask = { ...task, id: generateId(), completed: false };
+    setWeddingTasks(prev => [newT, ...prev]);
+    sbUpsert('wedding_tasks', toWeddingTaskRow(newT));
+  };
+  const toggleWeddingTask = (id: string) => {
+    setWeddingTasks(prev => prev.map(t => {
+      if (t.id === id) {
+        const updated = { ...t, completed: !t.completed };
+        sbUpsert('wedding_tasks', toWeddingTaskRow(updated));
+        return updated;
+      }
+      return t;
+    }));
+  };
+  const editWeddingTask = (id: string, updated: Partial<WeddingTask>) => {
+    setWeddingTasks(prev => prev.map(t => {
+      if (t.id === id) {
+        const updatedT = { ...t, ...updated };
+        sbUpsert('wedding_tasks', toWeddingTaskRow(updatedT));
+        return updatedT;
+      }
+      return t;
+    }));
+  };
+  const deleteWeddingTask = (id: string) => {
+    setWeddingTasks(prev => prev.filter(t => t.id !== id));
+    sbDelete('wedding_tasks', id);
+  };
+
+  const addWeddingNote = (note: Omit<WeddingNote, 'id'>) => {
+    const newN: WeddingNote = { ...note, id: generateId() };
+    setWeddingNotes(prev => [newN, ...prev]);
+    sbUpsert('wedding_notes', toWeddingNoteRow(newN));
+  };
+  const editWeddingNote = (id: string, updated: Partial<WeddingNote>) => {
+    setWeddingNotes(prev => prev.map(n => {
+      if (n.id === id) {
+        const updatedN = { ...n, ...updated };
+        sbUpsert('wedding_notes', toWeddingNoteRow(updatedN));
+        return updatedN;
+      }
+      return n;
+    }));
+  };
+  const deleteWeddingNote = (id: string) => {
+    setWeddingNotes(prev => prev.filter(n => n.id !== id));
+    sbDelete('wedding_notes', id);
   };
 
   // ── Events ────────────────────────────────────────────────────────────────
   const addEvent = (event: Omit<CalendarEvent,'id'>) => {
-    const newEvent: CalendarEvent = { ...event, id: `ev_${Date.now()}` };
-    setEvents(prev => { const d = [...prev, newEvent]; saveLocalData('events', d); return d; });
-    sbUpsert('calendar_events', toEventRow(newEvent));
+    const newEvent: CalendarEvent = { ...event, id: generateId() };
+    const row = toEventRow(newEvent);
+    setEvents(prev => [...prev, newEvent]);
+    sbUpsert('calendar_events', row);
+    broadcastRealtime({ table: 'calendar_events', eventType: 'INSERT', newRow: row });
   };
   const editEvent = (id: string, updated: Partial<CalendarEvent>) => {
     setEvents(prev => {
       const d = prev.map(e => e.id === id ? { ...e, ...updated } : e);
-      saveLocalData('events', d);
       const found = d.find(e => e.id === id);
-      if (found) sbUpsert('calendar_events', toEventRow(found));
+      if (found) {
+        const row = toEventRow(found);
+        sbUpsert('calendar_events', row);
+        broadcastRealtime({ table: 'calendar_events', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const deleteEvent = (id: string) => {
-    setEvents(prev => { const d = prev.filter(e => e.id !== id); saveLocalData('events', d); return d; });
+    setEvents(prev => prev.filter(e => e.id !== id));
     sbDelete('calendar_events', id);
+    broadcastRealtime({ table: 'calendar_events', eventType: 'DELETE', oldRow: { id } });
   };
 
   // ── Tasks ─────────────────────────────────────────────────────────────────
   const addTask = (task: Omit<TaskItem,'id'|'completed'>) => {
-    const newTask: TaskItem = { ...task, id: `task_${Date.now()}`, completed: false, validationStatus: 'none' };
-    setTasks(prev => { const d = [...prev, newTask]; saveLocalData('tasks', d); return d; });
-    sbUpsert('tasks', toTaskRow(newTask));
+    const newTask: TaskItem = { ...task, id: generateId(), completed: false, validationStatus: 'none' };
+    const row = toTaskRow(newTask);
+    setTasks(prev => [...prev, newTask]);
+    sbUpsert('tasks', row);
+    broadcastRealtime({ table: 'tasks', eventType: 'INSERT', newRow: row });
   };
   const editTask = (id: string, updated: Partial<TaskItem>) => {
     setTasks(prev => {
       const d = prev.map(t => t.id === id ? { ...t, ...updated } : t);
-      saveLocalData('tasks', d);
       const found = d.find(t => t.id === id);
-      if (found) sbUpsert('tasks', toTaskRow(found));
+      if (found) {
+        const row = toTaskRow(found);
+        sbUpsert('tasks', row);
+        broadcastRealtime({ table: 'tasks', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const toggleTask = (id: string) => {
-    setTasks(prev => {
-      const d = prev.map(t => {
-        if (t.id === id) {
-          const nextState = !t.completed;
-          if (nextState && t.assignedMemberId) {
-            const member = allMembers.find(m => m.id === t.assignedMemberId);
-            if (member) {
-              updateMemberDetails(member.id, { points: member.points + t.points });
-              confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
-            }
+    setTasks(prev => prev.map(t => {
+      if (t.id === id) {
+        const nextState = !t.completed;
+        if (nextState && t.assignedMemberId) {
+          const member = allMembers.find(m => m.id === t.assignedMemberId);
+          if (member) {
+            updateMemberDetails(member.id, { points: member.points + t.points });
+            confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
           }
-          const updated = { ...t, completed: nextState, completedAt: nextState ? new Date().toISOString() : undefined, validationStatus: nextState ? 'approved' : 'none' as TaskItem['validationStatus'] };
-          sbUpsert('tasks', toTaskRow(updated));
-          return updated;
         }
-        return t;
-      });
-      saveLocalData('tasks', d);
-      return d;
-    });
+        const updated = { ...t, completed: nextState, completedAt: nextState ? new Date().toISOString() : undefined, validationStatus: nextState ? 'approved' : 'none' as TaskItem['validationStatus'] };
+        const row = toTaskRow(updated);
+        sbUpsert('tasks', row);
+        broadcastRealtime({ table: 'tasks', eventType: 'UPDATE', newRow: row });
+        return updated;
+      }
+      return t;
+    }));
   };
   const requestTaskValidation = (taskId: string, memberId: string) => {
-    setTasks(prev => {
-      const d = prev.map(t => {
-        if (t.id === taskId) {
-          const updated = { ...t, validationStatus: 'pending_approval' as TaskItem['validationStatus'], requestedByMemberId: memberId };
-          sbUpsert('tasks', toTaskRow(updated));
-          return updated;
-        }
-        return t;
-      });
-      saveLocalData('tasks', d);
-      return d;
-    });
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const updated = { ...t, validationStatus: 'pending_approval' as TaskItem['validationStatus'], requestedByMemberId: memberId };
+        const row = toTaskRow(updated);
+        sbUpsert('tasks', row);
+        broadcastRealtime({ table: 'tasks', eventType: 'UPDATE', newRow: row });
+        return updated;
+      }
+      return t;
+    }));
   };
   const approveTaskValidation = (taskId: string) => {
-    setTasks(prev => {
-      const d = prev.map(t => {
-        if (t.id === taskId) {
-          const targetMemberId = t.requestedByMemberId || t.assignedMemberId;
-          if (targetMemberId) {
-            const member = allMembers.find(m => m.id === targetMemberId);
-            if (member) {
-              updateMemberDetails(member.id, { points: member.points + t.points });
-              confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
-            }
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const targetMemberId = t.requestedByMemberId || t.assignedMemberId;
+        if (targetMemberId) {
+          const member = allMembers.find(m => m.id === targetMemberId);
+          if (member) {
+            updateMemberDetails(member.id, { points: member.points + t.points });
+            confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
           }
-          const updated = { ...t, completed: true, completedAt: new Date().toISOString(), validationStatus: 'approved' as TaskItem['validationStatus'] };
-          sbUpsert('tasks', toTaskRow(updated));
-          return updated;
         }
-        return t;
-      });
-      saveLocalData('tasks', d);
-      return d;
-    });
+        const updated = { ...t, completed: true, completedAt: new Date().toISOString(), validationStatus: 'approved' as TaskItem['validationStatus'] };
+        const row = toTaskRow(updated);
+        sbUpsert('tasks', row);
+        broadcastRealtime({ table: 'tasks', eventType: 'UPDATE', newRow: row });
+        return updated;
+      }
+      return t;
+    }));
   };
   const rejectTaskValidation = (taskId: string) => {
-    setTasks(prev => {
-      const d = prev.map(t => {
-        if (t.id === taskId) {
-          const updated = { ...t, validationStatus: 'rejected' as TaskItem['validationStatus'] };
-          sbUpsert('tasks', toTaskRow(updated));
-          return updated;
-        }
-        return t;
-      });
-      saveLocalData('tasks', d);
-      return d;
-    });
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const updated = { ...t, validationStatus: 'rejected' as TaskItem['validationStatus'] };
+        const row = toTaskRow(updated);
+        sbUpsert('tasks', row);
+        broadcastRealtime({ table: 'tasks', eventType: 'UPDATE', newRow: row });
+        return updated;
+      }
+      return t;
+    }));
   };
   const deleteTask = (id: string) => {
-    setTasks(prev => { const d = prev.filter(t => t.id !== id); saveLocalData('tasks', d); return d; });
+    setTasks(prev => prev.filter(t => t.id !== id));
     sbDelete('tasks', id);
+    broadcastRealtime({ table: 'tasks', eventType: 'DELETE', oldRow: { id } });
   };
 
   // ── Rewards ───────────────────────────────────────────────────────────────
@@ -631,30 +895,26 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const reward = rewards.find(r => r.id === rewardId);
     if (!reward) return;
     const newReq: RewardRequest = {
-      id: `rr_${Date.now()}`, rewardId, rewardTitle: reward.title,
+      id: generateId(), rewardId, rewardTitle: reward.title,
       pointsCost: reward.pointsCost, memberId, memberName,
       status: 'requested', requestedAt: new Date().toISOString().split('T')[0]
     };
-    setRewardRequests(prev => {
-      const d = [newReq, ...prev];
-      saveLocalData('reward_requests', d);
-      return d;
-    });
-    sbUpsert('reward_requests', toRewardRequestRow(newReq));
+    const row = toRewardRequestRow(newReq);
+    setRewardRequests(prev => [newReq, ...prev]);
+    sbUpsert('reward_requests', row);
+    broadcastRealtime({ table: 'reward_requests', eventType: 'INSERT', newRow: row });
   };
   const updateRewardRequest = (requestId: string, patch: Partial<RewardRequest>) => {
-    setRewardRequests(prev => {
-      const d = prev.map(r => {
-        if (r.id === requestId) {
-          const updated = { ...r, ...patch };
-          sbUpsert('reward_requests', toRewardRequestRow(updated));
-          return updated;
-        }
-        return r;
-      });
-      saveLocalData('reward_requests', d);
-      return d;
-    });
+    setRewardRequests(prev => prev.map(r => {
+      if (r.id === requestId) {
+        const updated = { ...r, ...patch };
+        const row = toRewardRequestRow(updated);
+        sbUpsert('reward_requests', row);
+        broadcastRealtime({ table: 'reward_requests', eventType: 'UPDATE', newRow: row });
+        return updated;
+      }
+      return r;
+    }));
   };
   const approveRewardRequest = (requestId: string) => {
     setRewardRequests(prev => {
@@ -667,9 +927,12 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
       }
       const d = prev.map(r => r.id === requestId ? { ...r, status: 'approved' as RewardRequest['status'], approvedAt: new Date().toISOString().split('T')[0] } : r);
-      saveLocalData('reward_requests', d);
       const found = d.find(r => r.id === requestId);
-      if (found) sbUpsert('reward_requests', toRewardRequestRow(found));
+      if (found) {
+        const row = toRewardRequestRow(found);
+        sbUpsert('reward_requests', row);
+        broadcastRealtime({ table: 'reward_requests', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
@@ -679,39 +942,49 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // ── Shopping ──────────────────────────────────────────────────────────────
   const addShoppingItem = (item: Omit<ShoppingItem,'id'|'completed'|'createdAt'>) => {
-    const newItem: ShoppingItem = { ...item, id: `shop_${Date.now()}`, completed: false, createdAt: new Date().toISOString() };
-    setShoppingItems(prev => { const d = [newItem, ...prev]; saveLocalData('shopping', d); return d; });
-    sbUpsert('shopping_items', toShopRow(newItem));
+    const newItem: ShoppingItem = { ...item, id: generateId(), completed: false, createdAt: new Date().toISOString() };
+    const row = toShopRow(newItem);
+    setShoppingItems(prev => [newItem, ...prev]);
+    sbUpsert('shopping_items', row);
+    broadcastRealtime({ table: 'shopping_items', eventType: 'INSERT', newRow: row });
   };
   const editShoppingItem = (id: string, updated: Partial<ShoppingItem>) => {
     setShoppingItems(prev => {
       const d = prev.map(s => s.id === id ? { ...s, ...updated } : s);
-      saveLocalData('shopping', d);
       const found = d.find(s => s.id === id);
-      if (found) sbUpsert('shopping_items', toShopRow(found));
+      if (found) {
+        const row = toShopRow(found);
+        sbUpsert('shopping_items', row);
+        broadcastRealtime({ table: 'shopping_items', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const toggleShoppingItem = (id: string) => {
     setShoppingItems(prev => {
       const d = prev.map(s => s.id === id ? { ...s, completed: !s.completed } : s);
-      saveLocalData('shopping', d);
       const found = d.find(s => s.id === id);
-      if (found) sbUpsert('shopping_items', toShopRow(found));
+      if (found) {
+        const row = toShopRow(found);
+        sbUpsert('shopping_items', row);
+        broadcastRealtime({ table: 'shopping_items', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const deleteShoppingItem = (id: string) => {
-    setShoppingItems(prev => { const d = prev.filter(s => s.id !== id); saveLocalData('shopping', d); return d; });
+    setShoppingItems(prev => prev.filter(s => s.id !== id));
     sbDelete('shopping_items', id);
+    broadcastRealtime({ table: 'shopping_items', eventType: 'DELETE', oldRow: { id } });
   };
   const clearCompletedShopping = () => {
     setShoppingItems(prev => {
       const toDelete = prev.filter(s => s.completed);
-      const d = prev.filter(s => !s.completed);
-      saveLocalData('shopping', d);
-      toDelete.forEach(s => sbDelete('shopping_items', s.id));
-      return d;
+      toDelete.forEach(s => {
+        sbDelete('shopping_items', s.id);
+        broadcastRealtime({ table: 'shopping_items', eventType: 'DELETE', oldRow: { id: s.id } });
+      });
+      return prev.filter(s => !s.completed);
     });
   };
 
@@ -719,29 +992,36 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateMealPlanDay = (dayKey: string, meals: Partial<WeeklyMealPlan[string]>) => {
     setMealPlan(prev => {
       const updated = { ...prev, [dayKey]: { ...prev[dayKey], ...meals } };
-      saveLocalData('meals', updated);
       const dayMeal = updated[dayKey];
-      sbUpsert('meal_plans', { id: `meal_${dayKey}`, day_key: dayKey, ...dayMeal });
+      const row = { id: `meal_${dayKey}`, day_key: dayKey, ...dayMeal };
+      sbUpsert('meal_plans', row);
+      broadcastRealtime({ table: 'meal_plans', eventType: 'UPDATE', newRow: row });
       return updated;
     });
   };
 
   // ── Birthdays ─────────────────────────────────────────────────────────────
   const addBirthday = (bday: Omit<BirthdayItem,'id'|'giftIdeas'>) => {
-    const newBday: BirthdayItem = { ...bday, id: `bday_${Date.now()}`, giftIdeas: [] };
-    setBirthdays(prev => { const d = [...prev, newBday]; saveLocalData('birthdays', d); return d; });
-    sbUpsert('birthdays', toBirthdayRow(newBday));
+    const newBday: BirthdayItem = { ...bday, id: generateId(), giftIdeas: [] };
+    const row = toBirthdayRow(newBday);
+    setBirthdays(prev => [...prev, newBday]);
+    sbUpsert('birthdays', row);
+    broadcastRealtime({ table: 'birthdays', eventType: 'INSERT', newRow: row });
   };
   const deleteBirthday = (id: string) => {
-    setBirthdays(prev => { const d = prev.filter(b => b.id !== id); saveLocalData('birthdays', d); return d; });
+    setBirthdays(prev => prev.filter(b => b.id !== id));
     sbDelete('birthdays', id);
+    broadcastRealtime({ table: 'birthdays', eventType: 'DELETE', oldRow: { id } });
   };
   const updateBirthdayById = (id: string, patch: Partial<BirthdayItem>) => {
     setBirthdays(prev => {
       const d = prev.map(b => b.id === id ? { ...b, ...patch } : b);
-      saveLocalData('birthdays', d);
       const found = d.find(b => b.id === id);
-      if (found) sbUpsert('birthdays', toBirthdayRow(found));
+      if (found) {
+        const row = toBirthdayRow(found);
+        sbUpsert('birthdays', row);
+        broadcastRealtime({ table: 'birthdays', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
@@ -749,13 +1029,33 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const titleStr = typeof titleOrObj === 'string' ? titleOrObj : titleOrObj.title;
     const costVal = typeof titleOrObj === 'string' ? cost : titleOrObj.estimatedCost;
     const statusVal = typeof titleOrObj === 'string' ? 'Idea' : (titleOrObj.status || 'Idea');
-    const newIdea: GiftIdea = { id: `gift_${Date.now()}`, title: titleStr, estimatedCost: costVal, status: statusVal };
+    const newIdea: GiftIdea = { id: generateId(), title: titleStr, estimatedCost: costVal, status: statusVal };
     setBirthdays(prev => {
-      const d = prev.map(b => b.id === birthdayId ? { ...b, giftIdeas: [...b.giftIdeas, newIdea] } : b);
-      saveLocalData('birthdays', d);
-      const found = d.find(b => b.id === birthdayId);
-      if (found) sbUpsert('birthdays', toBirthdayRow(found));
-      return d;
+      const exists = prev.some(b => b.id === birthdayId);
+      let updatedList: BirthdayItem[];
+      if (exists) {
+        updatedList = prev.map(b => b.id === birthdayId ? { ...b, giftIdeas: [...b.giftIdeas, newIdea] } : b);
+      } else {
+        const targetMember = allMembers.find(m => m.id === birthdayId);
+        const targetAnn = anniversaries.find(a => a.id === birthdayId);
+        const newBdayItem: BirthdayItem = {
+          id: birthdayId,
+          name: targetMember?.name || targetAnn?.title || 'Persona/Celebración',
+          relationship: targetMember?.role || targetAnn?.type || 'Familia',
+          birthDate: targetMember?.birthDate || targetAnn?.date || '',
+          avatar: targetMember?.avatar || '🎉',
+          giftIdeas: [newIdea],
+          notes: targetMember?.notes || targetAnn?.notes
+        };
+        updatedList = [...prev, newBdayItem];
+      }
+      const targetItem = updatedList.find(b => b.id === birthdayId);
+      if (targetItem) {
+        const row = toBirthdayRow(targetItem);
+        sbUpsert('birthdays', row);
+        broadcastRealtime({ table: 'birthdays', eventType: 'UPDATE', newRow: row });
+      }
+      return updatedList;
     });
   };
   const updateGiftIdeaStatus = (birthdayId: string, giftId: string, status: GiftIdea['status']) => {
@@ -763,9 +1063,12 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const d = prev.map(b => b.id === birthdayId
         ? { ...b, giftIdeas: b.giftIdeas.map(g => g.id === giftId ? { ...g, status } : g) }
         : b);
-      saveLocalData('birthdays', d);
       const found = d.find(b => b.id === birthdayId);
-      if (found) sbUpsert('birthdays', toBirthdayRow(found));
+      if (found) {
+        const row = toBirthdayRow(found);
+        sbUpsert('birthdays', row);
+        broadcastRealtime({ table: 'birthdays', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
@@ -780,104 +1083,133 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             })
           }
         : b);
-      saveLocalData('birthdays', d);
       const found = d.find(b => b.id === birthdayId);
-      if (found) sbUpsert('birthdays', toBirthdayRow(found));
+      if (found) {
+        const row = toBirthdayRow(found);
+        sbUpsert('birthdays', row);
+        broadcastRealtime({ table: 'birthdays', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
 
   // ── Sticky Notes ──────────────────────────────────────────────────────────
   const addStickyNote = (note: Omit<StickyNote,'id'|'createdAt'>) => {
-    const newNote: StickyNote = { ...note, id: `note_${Date.now()}`, createdAt: new Date().toISOString() };
-    setStickyNotes(prev => { const d = [newNote, ...prev]; saveLocalData('notes', d); return d; });
-    sbUpsert('sticky_notes', toNoteRow(newNote));
+    const newNote: StickyNote = { ...note, id: generateId(), createdAt: new Date().toISOString() };
+    const row = toNoteRow(newNote);
+    setStickyNotes(prev => [newNote, ...prev]);
+    sbUpsert('sticky_notes', row);
+    broadcastRealtime({ table: 'sticky_notes', eventType: 'INSERT', newRow: row });
   };
   const editStickyNote = (id: string, updated: Partial<StickyNote>) => {
     setStickyNotes(prev => {
       const d = prev.map(n => n.id === id ? { ...n, ...updated } : n);
-      saveLocalData('notes', d);
       const found = d.find(n => n.id === id);
-      if (found) sbUpsert('sticky_notes', toNoteRow(found));
+      if (found) {
+        const row = toNoteRow(found);
+        sbUpsert('sticky_notes', row);
+        broadcastRealtime({ table: 'sticky_notes', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const togglePinNote = (id: string) => {
     setStickyNotes(prev => {
       const d = prev.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n);
-      saveLocalData('notes', d);
       const found = d.find(n => n.id === id);
-      if (found) sbUpsert('sticky_notes', toNoteRow(found));
+      if (found) {
+        const row = toNoteRow(found);
+        sbUpsert('sticky_notes', row);
+        broadcastRealtime({ table: 'sticky_notes', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const deleteStickyNote = (id: string) => {
-    setStickyNotes(prev => { const d = prev.filter(n => n.id !== id); saveLocalData('notes', d); return d; });
+    setStickyNotes(prev => prev.filter(n => n.id !== id));
     sbDelete('sticky_notes', id);
+    broadcastRealtime({ table: 'sticky_notes', eventType: 'DELETE', oldRow: { id } });
   };
 
   // ── Expenses ──────────────────────────────────────────────────────────────
   const addExpense = (expense: Omit<ExpenseItem,'id'>) => {
-    const newExp: ExpenseItem = { ...expense, id: `exp_${Date.now()}` };
-    setExpenses(prev => { const d = [...prev, newExp]; saveLocalData('expenses', d); return d; });
-    sbUpsert('expenses', toExpenseRow(newExp));
+    const newExp: ExpenseItem = { ...expense, id: generateId() };
+    const row = toExpenseRow(newExp);
+    setExpenses(prev => [...prev, newExp]);
+    sbUpsert('expenses', row);
+    broadcastRealtime({ table: 'expenses', eventType: 'INSERT', newRow: row });
   };
   const toggleExpensePaid = (id: string) => {
     setExpenses(prev => {
       const d = prev.map(e => e.id === id ? { ...e, paid: !e.paid } : e);
-      saveLocalData('expenses', d);
       const found = d.find(e => e.id === id);
-      if (found) sbUpsert('expenses', toExpenseRow(found));
+      if (found) {
+        const row = toExpenseRow(found);
+        sbUpsert('expenses', row);
+        broadcastRealtime({ table: 'expenses', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const deleteExpense = (id: string) => {
-    setExpenses(prev => { const d = prev.filter(e => e.id !== id); saveLocalData('expenses', d); return d; });
+    setExpenses(prev => prev.filter(e => e.id !== id));
     sbDelete('expenses', id);
+    broadcastRealtime({ table: 'expenses', eventType: 'DELETE', oldRow: { id } });
   };
 
   // ── Emergency Contacts ────────────────────────────────────────────────────
   const addEmergencyContact = (contact: Omit<EmergencyContact,'id'>) => {
-    const newC: EmergencyContact = { ...contact, id: `contact_${Date.now()}` };
-    setEmergencyContacts(prev => { const d = [...prev, newC]; saveLocalData('contacts', d); return d; });
-    sbUpsert('emergency_contacts', toContactRow(newC));
+    const newC: EmergencyContact = { ...contact, id: generateId() };
+    const row = toContactRow(newC);
+    setEmergencyContacts(prev => [...prev, newC]);
+    sbUpsert('emergency_contacts', row);
+    broadcastRealtime({ table: 'emergency_contacts', eventType: 'INSERT', newRow: row });
   };
   const deleteEmergencyContact = (id: string) => {
-    setEmergencyContacts(prev => { const d = prev.filter(c => c.id !== id); saveLocalData('contacts', d); return d; });
+    setEmergencyContacts(prev => prev.filter(c => c.id !== id));
     sbDelete('emergency_contacts', id);
+    broadcastRealtime({ table: 'emergency_contacts', eventType: 'DELETE', oldRow: { id } });
   };
 
   // ── Catholic Intentions ───────────────────────────────────────────────────
   const addIntention = (intention: Omit<CatholicIntention,'id'|'completed'>) => {
-    const newInt: CatholicIntention = { ...intention, id: `int_${Date.now()}`, completed: false };
-    setIntentions(prev => { const d = [...prev, newInt]; saveLocalData('intentions', d); return d; });
-    sbUpsert('catholic_intentions', toIntentionRow(newInt));
+    const newInt: CatholicIntention = { ...intention, id: generateId(), completed: false };
+    const row = toIntentionRow(newInt);
+    setIntentions(prev => [...prev, newInt]);
+    sbUpsert('catholic_intentions', row);
+    broadcastRealtime({ table: 'catholic_intentions', eventType: 'INSERT', newRow: row });
   };
   const toggleIntention = (id: string) => {
     setIntentions(prev => {
       const d = prev.map(i => i.id === id ? { ...i, completed: !i.completed } : i);
-      saveLocalData('intentions', d);
       const found = d.find(i => i.id === id);
-      if (found) sbUpsert('catholic_intentions', toIntentionRow(found));
+      if (found) {
+        const row = toIntentionRow(found);
+        sbUpsert('catholic_intentions', row);
+        broadcastRealtime({ table: 'catholic_intentions', eventType: 'UPDATE', newRow: row });
+      }
       return d;
     });
   };
   const deleteIntention = (id: string) => {
-    setIntentions(prev => { const d = prev.filter(i => i.id !== id); saveLocalData('intentions', d); return d; });
+    setIntentions(prev => prev.filter(i => i.id !== id));
     sbDelete('catholic_intentions', id);
+    broadcastRealtime({ table: 'catholic_intentions', eventType: 'DELETE', oldRow: { id } });
   };
 
-  // ── Reset ─────────────────────────────────────────────────────────────────
+  // ── Reset (admin only — clears all local state, Supabase untouched) ───────
   const resetToMockData = () => {
-    setEvents(INITIAL_EVENTS);
-    setTasks(INITIAL_TASKS);
-    setShoppingItems(INITIAL_SHOPPING_ITEMS);
-    setMealPlan(INITIAL_MEAL_PLAN);
-    setBirthdays(INITIAL_BIRTHDAYS);
-    setStickyNotes(INITIAL_NOTES);
-    setExpenses(INITIAL_EXPENSES);
-    setEmergencyContacts(INITIAL_EMERGENCY_CONTACTS);
-    setIntentions(INITIAL_INTENTIONS);
+    setEvents([]);
+    setTasks([]);
+    setShoppingItems([]);
+    setMealPlan({});
+    setBirthdays([]);
+    setStickyNotes([]);
+    setExpenses([]);
+    setEmergencyContacts([]);
+    setIntentions([]);
+    setWeddingTasks([]);
+    setWeddingNotes([]);
     setCustomCategories(DEFAULT_CATEGORIES);
   };
 
@@ -890,8 +1222,13 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       events, tasks, shoppingItems, mealPlan, birthdays,
       stickyNotes, expenses, emergencyContacts, intentions,
       anniversaries, rewards, rewardRequests, customTaskLists,
+      weddingTasks, weddingNotes,
       sectionVisibility, customCategories, menuOrder,
+      wifiSSID, wifiPass, updateWifi,
+      dataLoaded,
       addAnniversary, deleteAnniversary,
+      addWeddingTask, toggleWeddingTask, editWeddingTask, deleteWeddingTask,
+      addWeddingNote, editWeddingNote, deleteWeddingNote,
       reorderMenuSections,
       updateSectionVisibility,
       updateCategories, addCategory, deleteCategory, reorderCategories,
@@ -902,7 +1239,7 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       claimReward, requestReward, approveRewardRequest, rejectRewardRequest, enjoyReward, revokeRewardRequest,
       addShoppingItem, editShoppingItem, toggleShoppingItem, deleteShoppingItem, clearCompletedShopping,
       updateMealPlanDay,
-      addBirthday, deleteBirthday, addGiftIdea, updateGiftIdeaStatus, toggleGiftStatus,
+      addBirthday, deleteBirthday, updateBirthdayById, addGiftIdea, updateGiftIdeaStatus, toggleGiftStatus,
       addStickyNote, editStickyNote, togglePinNote, deleteStickyNote,
       addExpense, toggleExpensePaid, deleteExpense,
       addEmergencyContact, deleteEmergencyContact,

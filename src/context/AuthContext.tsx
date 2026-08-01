@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { FamilyMember, FamilyRole, RolePermissions } from '../types';
 import { INITIAL_MEMBERS, DEFAULT_ROLE_PERMISSIONS } from '../data/mockData';
-import { loadLocalData, saveLocalData, supabase, sbUpsert, sbDelete, sbFetch, sbSetConfig, sbGetConfig } from '../lib/supabase';
+import { supabase, sbUpsert, sbDelete, sbFetch, sbSetConfig, sbGetConfig } from '../lib/supabase';
 
 interface AuthContextType {
   currentMember: FamilyMember | null;
@@ -74,74 +74,112 @@ function memberToRow(m: FamilyMember): Record<string, unknown> {
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [allMembers, setAllMembers] = useState<FamilyMember[]>(() =>
-    loadLocalData('members', INITIAL_MEMBERS)
-  );
+  // Start empty — Supabase is the single source of truth
+  const [allMembers, setAllMembers] = useState<FamilyMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentMember, setCurrentMember] = useState<FamilyMember | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const [rolePermissionsMap, setRolePermissionsMapState] = useState<Record<string, RolePermissions>>(() =>
-    loadLocalData('role_permissions', DEFAULT_ROLE_PERMISSIONS)
-  );
+  const [rolePermissionsMap, setRolePermissionsMapState] = useState<Record<string, RolePermissions>>(DEFAULT_ROLE_PERMISSIONS);
 
-  // ─── Load members from Supabase on mount ────────────────────────────────
-  useEffect(() => {
-    async function loadMembers() {
-      try {
-        const rows = await sbFetch<Record<string, unknown>>('family_members');
-        if (rows.length > 0) {
-          const members = rows.map(rowToMember);
-          setAllMembers(members);
-          saveLocalData('members', members);
-        } else {
-          // Seed initial members into Supabase
-          const initial = loadLocalData('members', INITIAL_MEMBERS);
-          setAllMembers(initial);
-          for (const m of initial) {
-            await sbUpsert('family_members', memberToRow(m));
-          }
+  // ─── Load members & restore session ──────────────────────────────────────
+  const loadMembers = useCallback(async () => {
+    try {
+      const rows = await sbFetch<Record<string, unknown>>('family_members');
+      let members: FamilyMember[] = [];
+      if (rows.length > 0) {
+        members = rows.map(rowToMember);
+      } else {
+        members = INITIAL_MEMBERS;
+        for (const m of members) {
+          await sbUpsert('family_members', memberToRow(m));
         }
-
-        // Load role permissions from Supabase config
-        const savedPerms = await sbGetConfig('role_permissions');
-        if (savedPerms) {
-          setRolePermissionsMapState(savedPerms as Record<string, RolePermissions>);
-        }
-      } catch (e) {
-        console.warn('Error loading members from Supabase:', e);
-      } finally {
-        setLoading(false);
       }
-    }
+      setAllMembers(members);
 
-    loadMembers();
-  }, []);
+      // Restore session synchronously before ending loading state
+      const savedId = localStorage.getItem('portal_fam_session_member_id');
+      const sessionExpiry = localStorage.getItem('portal_fam_session_expiry');
+      if (savedId && sessionExpiry) {
+        const expiry = parseInt(sessionExpiry, 10);
+        if (Date.now() < expiry) {
+          const found = members.find(m => m.id === savedId) || INITIAL_MEMBERS.find(m => m.id === savedId);
+          if (found) {
+            setCurrentMember(found);
+            setIsLoggedIn(true);
+          }
+        } else {
+          localStorage.removeItem('portal_fam_session_member_id');
+          localStorage.removeItem('portal_fam_session_expiry');
+        }
+      }
 
-  // ─── Restore session from localStorage ─────────────────────────────────
-  useEffect(() => {
-    if (loading) return;
-    const savedId = localStorage.getItem('portal_fam_session_member_id');
-    const sessionExpiry = localStorage.getItem('portal_fam_session_expiry');
-    if (savedId && sessionExpiry) {
-      const expiry = parseInt(sessionExpiry, 10);
-      if (Date.now() < expiry) {
-        const found = allMembers.find(m => m.id === savedId);
+      // Load role permissions from Supabase config
+      const savedPerms = await sbGetConfig('role_permissions');
+      if (savedPerms) {
+        setRolePermissionsMapState(savedPerms as Record<string, RolePermissions>);
+      }
+    } catch (e) {
+      console.warn('Error loading members from Supabase:', e);
+      // Fallback to initial members on error
+      setAllMembers(INITIAL_MEMBERS);
+      const savedId = localStorage.getItem('portal_fam_session_member_id');
+      if (savedId) {
+        const found = INITIAL_MEMBERS.find(m => m.id === savedId);
         if (found) {
           setCurrentMember(found);
           setIsLoggedIn(true);
         }
-      } else {
-        // Session expired - clear it
-        localStorage.removeItem('portal_fam_session_member_id');
-        localStorage.removeItem('portal_fam_session_expiry');
       }
+    } finally {
+      setLoading(false);
     }
-  }, [loading, allMembers]);
+  }, []);
 
-  // ─── Persist role permissions ────────────────────────────────────────────
   useEffect(() => {
-    saveLocalData('role_permissions', rolePermissionsMap);
+    loadMembers();
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadMembers();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+    };
+  }, [loadMembers]);
+
+  // ─── Realtime Subscriptions for family_members ─────────────────────────
+  useEffect(() => {
+    const channel = supabase
+      .channel('auth_realtime_members_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'family_members' }, (payload) => {
+        const { eventType, new: newRow, old: oldRow } = payload;
+        if (eventType === 'INSERT' || eventType === 'UPDATE') {
+          const updated = rowToMember(newRow);
+          setAllMembers(prev => {
+            const idx = prev.findIndex(m => m.id === updated.id);
+            return idx >= 0 ? prev.map(m => m.id === updated.id ? updated : m) : [...prev, updated];
+          });
+          setCurrentMember(curr => curr?.id === updated.id ? updated : curr);
+        } else if (eventType === 'DELETE' && oldRow?.id) {
+          setAllMembers(prev => prev.filter(m => m.id !== oldRow.id));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // ─── Persist role permissions to Supabase only ───────────────────────────
+  useEffect(() => {
     sbSetConfig('role_permissions', rolePermissionsMap);
   }, [rolePermissionsMap]);
 
@@ -159,7 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentMember(member);
     setIsLoggedIn(true);
 
-    // Persist session for 30 days
+    // Persist session for 30 days (session token only — not family data)
     const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
     localStorage.setItem('portal_fam_session_member_id', memberId);
     localStorage.setItem('portal_fam_session_expiry', expiry.toString());
@@ -199,7 +237,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return m;
       });
-      saveLocalData('members', updated);
       return updated;
     });
   }, [currentMember]);
@@ -216,19 +253,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return m;
       });
-      saveLocalData('members', updated);
       return updated;
     });
   }, [currentMember]);
 
   // ─── Add member ──────────────────────────────────────────────────────────
   const addMember = useCallback((newMember: Omit<FamilyMember, 'id'>) => {
-    const created: FamilyMember = { ...newMember, id: `m_${Date.now()}` };
-    setAllMembers(prev => {
-      const updated = [...prev, created];
-      saveLocalData('members', updated);
-      return updated;
-    });
+    const generatedId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}`;
+    const created: FamilyMember = { ...newMember, id: generatedId };
+    setAllMembers(prev => [...prev, created]);
     sbUpsert('family_members', memberToRow(created));
   }, []);
 
@@ -240,7 +273,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (currentMember?.id === memberId) {
         setCurrentMember(filtered[0]);
       }
-      saveLocalData('members', filtered);
       return filtered;
     });
     sbDelete('family_members', memberId);

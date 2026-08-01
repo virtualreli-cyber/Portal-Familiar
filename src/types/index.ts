@@ -38,9 +38,16 @@ export interface AnniversaryItem {
   id: string;
   memberIds: string[];
   title: string; // e.g. "Aniversario de Boda", "Santo de Carlos"
-  type: 'Boda' | 'Santo' | 'Otro';
+  type: 'Boda' | 'Santo' | 'Bautizo' | 'Comunión' | 'Empresa/Trabajo' | 'Otro' | string;
   date: string; // YYYY-MM-DD
   notes?: string;
+}
+
+export interface WeddingTask {
+  id: string;
+  title: string;
+  category: string;
+  completed: boolean;
 }
 
 export type CategoryShopping = string;

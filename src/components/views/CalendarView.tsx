@@ -44,7 +44,7 @@ const CATEGORY_COLORS: Record<EventCategory, { bg: string; text: string; border:
 };
 
 export const CalendarView: React.FC = () => {
-  const { events, birthdays, addEvent, deleteEvent } = useFamily();
+  const { events, birthdays, anniversaries, addEvent, deleteEvent } = useFamily();
   const { allMembers, currentMember } = useAuth();
 
   const [viewMode, setViewModeState] = useState<'month' | 'agenda'>(() => 
@@ -141,11 +141,59 @@ export const CalendarView: React.FC = () => {
 
   // Selected date events & details
   const eventsOnSelectedDate = filteredEvents.filter(e => e.date === selectedDateStr);
-  const birthdaysOnSelectedDate = birthdays.filter(b => {
-    const bDate = new Date(b.birthDate);
-    const selDate = new Date(selectedDateStr);
-    return bDate.getMonth() === selDate.getMonth() && bDate.getDate() === selDate.getDate();
-  });
+
+  const getSpecialDateItems = (dateStr: string) => {
+    if (!dateStr) return { birthdays: [], anniversaries: [] };
+    const parts = dateStr.split('-');
+    if (parts.length < 3) return { birthdays: [], anniversaries: [] };
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+
+    // 1. Family Members Birthdays
+    const memberBdays: Array<{ id: string; name: string; relationship: string; avatar: string }> = allMembers.filter(mb => {
+      if (!mb.birthDate) return false;
+      const p = mb.birthDate.split('-');
+      return p.length >= 3 && parseInt(p[1], 10) === m && parseInt(p[2], 10) === d;
+    }).map(mb => ({
+      id: `mb_${mb.id}`,
+      name: mb.name,
+      relationship: mb.role as string,
+      avatar: mb.avatar || '🎂'
+    }));
+
+    // 2. Custom Birthdays
+    const customBdays = birthdays.filter(b => {
+      if (!b.birthDate) return false;
+      const p = b.birthDate.split('-');
+      return p.length >= 3 && parseInt(p[1], 10) === m && parseInt(p[2], 10) === d;
+    }).map(b => ({
+      id: b.id,
+      name: b.name,
+      relationship: b.relationship,
+      avatar: b.avatar || '🎂'
+    }));
+
+    const combinedBirthdays = [...memberBdays];
+    customBdays.forEach(cb => {
+      if (!combinedBirthdays.some(mb => mb.name.toLowerCase() === cb.name.toLowerCase())) {
+        combinedBirthdays.push(cb);
+      }
+    });
+
+    // 3. Anniversaries
+    const matchingAnniversaries = anniversaries.filter(a => {
+      if (!a.date) return false;
+      const p = a.date.split('-');
+      return p.length >= 3 && parseInt(p[1], 10) === m && parseInt(p[2], 10) === d;
+    });
+
+    return {
+      birthdays: combinedBirthdays,
+      anniversaries: matchingAnniversaries
+    };
+  };
+
+  const specialItemsOnSelectedDate = getSpecialDateItems(selectedDateStr);
   const saintForSelectedDate = getTodaySaint(selectedDateStr);
 
   const handleCreateEvent = (e: React.FormEvent) => {
@@ -315,11 +363,9 @@ export const CalendarView: React.FC = () => {
                 const isSelected = cell.dateStr === selectedDateStr;
                 const isToday = cell.dateStr === new Date().toISOString().split('T')[0];
                 const dayEvents = filteredEvents.filter(e => e.date === cell.dateStr);
-                const hasBirthdays = birthdays.some(b => {
-                  const bd = new Date(b.birthDate);
-                  const cellD = new Date(cell.dateStr);
-                  return bd.getMonth() === cellD.getMonth() && bd.getDate() === cellD.getDate();
-                });
+                const { birthdays: cellBirthdays, anniversaries: cellAnniversaries } = getSpecialDateItems(cell.dateStr);
+                const hasBirthdays = cellBirthdays.length > 0;
+                const hasAnniversaries = cellAnniversaries.length > 0;
 
                 return (
                   <button
@@ -337,9 +383,10 @@ export const CalendarView: React.FC = () => {
                       <span className={`text-xs sm:text-sm font-bold ${isSelected ? 'text-white' : ''}`}>
                         {cell.day}
                       </span>
-                      {hasBirthdays && (
-                        <span className="text-xs" title="Cumpleaños el día de hoy">🎂</span>
-                      )}
+                      <div className="flex items-center gap-0.5">
+                        {hasBirthdays && <span className="text-[11px]" title="Cumpleaños el día de hoy">🎂</span>}
+                        {hasAnniversaries && <span className="text-[11px]" title="Aniversario el día de hoy">❤️</span>}
+                      </div>
                     </div>
 
                     {/* Event Dots / Badges */}
@@ -389,22 +436,40 @@ export const CalendarView: React.FC = () => {
               </button>
             </div>
 
-
-
-            {/* Birthdays on Selected Day */}
-            {birthdaysOnSelectedDate.length > 0 && (
-              <div className="bg-rose-500/20 border border-rose-400/30 rounded-2xl p-4 space-y-2">
-                <h4 className="font-bold text-xs uppercase tracking-wider text-rose-200 flex items-center gap-2">
-                  <Cake className="w-4 h-4" /> Cumpleaños del Día
-                </h4>
-                {birthdaysOnSelectedDate.map(b => (
-                  <div key={b.id} className="flex items-center justify-between text-sm">
-                    <span className="font-semibold text-white">{b.avatar} {b.name} ({b.relationship})</span>
-                    <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      ¡Felicidades! 🎉
-                    </span>
+            {/* Birthdays and Anniversaries on Selected Day */}
+            {(specialItemsOnSelectedDate.birthdays.length > 0 || specialItemsOnSelectedDate.anniversaries.length > 0) && (
+              <div className="bg-rose-500/20 border border-rose-400/30 rounded-2xl p-4 space-y-3">
+                {specialItemsOnSelectedDate.birthdays.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-bold text-xs uppercase tracking-wider text-rose-200 flex items-center gap-2">
+                      <Cake className="w-4 h-4" /> Cumpleaños del Día
+                    </h4>
+                    {specialItemsOnSelectedDate.birthdays.map(b => (
+                      <div key={b.id} className="flex items-center justify-between text-sm">
+                        <span className="font-semibold text-white">{b.avatar} {b.name} ({b.relationship})</span>
+                        <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          ¡Felicidades! 🎉
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+
+                {specialItemsOnSelectedDate.anniversaries.length > 0 && (
+                  <div className={`space-y-2 ${specialItemsOnSelectedDate.birthdays.length > 0 ? 'pt-2 border-t border-rose-400/20' : ''}`}>
+                    <h4 className="font-bold text-xs uppercase tracking-wider text-pink-200 flex items-center gap-2">
+                      <span>❤️</span> Aniversarios y Celebraciones
+                    </h4>
+                    {specialItemsOnSelectedDate.anniversaries.map(a => (
+                      <div key={a.id} className="flex items-center justify-between text-sm">
+                        <span className="font-semibold text-white">💍 {a.title} ({a.type})</span>
+                        <span className="bg-pink-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          Día Especial ✨
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

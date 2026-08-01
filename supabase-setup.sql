@@ -55,12 +55,33 @@ create table if not exists app_config (
   updated_at timestamptz default now()
 );
 
--- Disable RLS on all new tables (family app, no per-user auth)
+-- wedding_tasks
+create table if not exists wedding_tasks (
+  id text primary key,
+  title text not null,
+  category text default 'General',
+  completed boolean default false,
+  created_at timestamptz default now()
+);
+
+-- wedding_notes
+create table if not exists wedding_notes (
+  id text primary key,
+  title text not null,
+  content text not null,
+  author text,
+  date text,
+  created_at timestamptz default now()
+);
+
+-- Disable RLS on all tables (family app, no per-user auth)
 alter table birthdays disable row level security;
 alter table anniversaries disable row level security;
 alter table reward_requests disable row level security;
 alter table custom_task_lists disable row level security;
 alter table app_config disable row level security;
+alter table wedding_tasks disable row level security;
+alter table wedding_notes disable row level security;
 
 -- Ensure family_members has all required columns
 alter table family_members add column if not exists birth_date text;
@@ -76,5 +97,8 @@ alter table family_members add column if not exists notes text;
 
 -- Update all existing members to have pin_code = '1234' if null
 update family_members set pin_code = '1234' where pin_code is null or pin_code = '';
+
+-- Enable Realtime publication on Supabase for all tables
+alter publication supabase_realtime add table family_members, calendar_events, tasks, shopping_items, meal_plans, birthdays, sticky_notes, expenses, emergency_contacts, catholic_intentions, anniversaries, reward_requests, custom_task_lists, wedding_tasks, wedding_notes, app_config;
 
 select 'Setup complete!' as status;

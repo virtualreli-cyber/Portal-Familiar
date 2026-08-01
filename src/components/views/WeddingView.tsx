@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { WeddingNote } from '../../types';
+import { useFamily } from '../../context/FamilyContext';
+import { WeddingNote, WeddingTask } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 import { 
   Heart, 
@@ -15,37 +16,22 @@ import {
   Filter
 } from 'lucide-react';
 
-interface WeddingTask {
-  id: string;
-  title: string;
-  category: string;
-  completed: boolean;
-}
-
 export const WeddingView: React.FC = () => {
   const { currentMember } = useAuth();
+  const {
+    weddingTasks,
+    weddingNotes,
+    addWeddingTask,
+    toggleWeddingTask,
+    editWeddingTask,
+    deleteWeddingTask,
+    addWeddingNote,
+    editWeddingNote,
+    deleteWeddingNote
+  } = useFamily();
 
   const [activeWeddingTab, setActiveWeddingTab] = useState<'todo' | 'notes'>('todo');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'completed'>('all');
-
-  // Initial Wedding Checklist
-  const [weddingTasks, setWeddingTasks] = useState<WeddingTask[]>([
-    { id: 'w1', title: 'Reserva de Iglesia / Lugar de Ceremonia', category: 'Lugar', completed: true },
-    { id: 'w2', title: 'Contratar Banquete y Menú de Pruebas', category: 'Comida', completed: true },
-    { id: 'w3', title: 'Diseño e Impresión de Invitaciones', category: 'Papelería', completed: false },
-    { id: 'w4', title: 'Prueba de Vestido de Novia y Traje de Novio', category: 'Vestuario', completed: false },
-    { id: 'w5', title: 'Contratar Fotógrafo y Reportaje de Vídeo', category: 'Multimedia', completed: true },
-    { id: 'w6', title: 'Elección de Música, DJ y Primer Baile', category: 'Música', completed: false },
-    { id: 'w7', title: 'Flores, Ramos y Decoración de Mesas', category: 'Decoración', completed: false },
-    { id: 'w8', title: 'Organizar Autobuses y Alojamiento Invitados', category: 'Logística', completed: false },
-    { id: 'w9', title: 'Reserva de Vuelos y Hotel Luna de Miel', category: 'Viaje', completed: false }
-  ]);
-
-  // Initial Wedding Notes
-  const [weddingNotes, setWeddingNotes] = useState<WeddingNote[]>([
-    { id: 'n1', title: 'Presupuesto Fotógrafo', content: 'Opción A: 1.200€ todo el día + álbum de novios y padres.', author: 'María', date: '2026-07-25' },
-    { id: 'n2', title: 'Canción Primer Baile', content: 'Aprender la coreografía de "Perfect" o "Aleluya".', author: 'Carlos', date: '2026-07-28' }
-  ]);
 
   // Task Modal (Add/Edit)
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -89,9 +75,9 @@ export const WeddingView: React.FC = () => {
     if (!taskTitle.trim()) return;
 
     if (editingTask) {
-      setWeddingTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, title: taskTitle.trim(), category: taskCategory.trim() } : t));
+      editWeddingTask(editingTask.id, { title: taskTitle.trim(), category: taskCategory.trim() });
     } else {
-      setWeddingTasks(prev => [{ id: `wt_${Date.now()}`, title: taskTitle.trim(), category: taskCategory.trim() || 'General', completed: false }, ...prev]);
+      addWeddingTask({ title: taskTitle.trim(), category: taskCategory.trim() || 'General' });
     }
     setShowTaskModal(false);
   };
@@ -115,15 +101,14 @@ export const WeddingView: React.FC = () => {
     if (!noteContent.trim()) return;
 
     if (editingNote) {
-      setWeddingNotes(prev => prev.map(n => n.id === editingNote.id ? { ...n, title: noteTitle.trim() || 'Nota de Boda', content: noteContent.trim() } : n));
+      editWeddingNote(editingNote.id, { title: noteTitle.trim() || 'Nota de Boda', content: noteContent.trim() });
     } else {
-      setWeddingNotes(prev => [{
-        id: `wn_${Date.now()}`,
+      addWeddingNote({
         title: noteTitle.trim() || 'Nota de Boda',
         content: noteContent.trim(),
-        author: currentMember.name.split(' ')[0],
+        author: currentMember?.name ? currentMember.name.split(' ')[0] : 'Familia',
         date: new Date().toISOString().split('T')[0]
-      }, ...prev]);
+      });
     }
     setShowNoteModal(false);
   };
@@ -238,7 +223,7 @@ export const WeddingView: React.FC = () => {
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <button
-                      onClick={() => setWeddingTasks(prev => prev.map(item => item.id === t.id ? { ...item, completed: !item.completed } : item))}
+                      onClick={() => toggleWeddingTask(t.id)}
                       className={`w-5 h-5 rounded-lg border flex items-center justify-center transition shrink-0 ${
                         t.completed ? 'bg-rose-500 border-rose-500 text-white' : 'border-slate-300 hover:border-rose-500'
                       }`}
@@ -399,8 +384,8 @@ export const WeddingView: React.FC = () => {
         }}
         onConfirm={() => {
           if (deletingId) {
-            if (deletingType === 'task') setWeddingTasks(prev => prev.filter(t => t.id !== deletingId));
-            if (deletingType === 'note') setWeddingNotes(prev => prev.filter(n => n.id !== deletingId));
+            if (deletingType === 'task') deleteWeddingTask(deletingId);
+            if (deletingType === 'note') deleteWeddingNote(deletingId);
           }
           setDeletingId(null);
           setDeletingType(null);

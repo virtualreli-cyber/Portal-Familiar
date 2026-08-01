@@ -57,23 +57,9 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const pendingTasksCount = tasks.filter(t => !t.completed && (!t.assignedMemberId || t.assignedMemberId === currentMember?.id)).length;
   const urgentShoppingCount = shoppingItems.filter(s => !s.completed && s.urgent).length;
 
-  // Handle native browser back gesture
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (e.state?.tab) {
-        setActiveTab(e.state.tab);
-      } else {
-        setActiveTab('dashboard');
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [setActiveTab]);
-
   const handleNavigate = (tab: ActiveTab) => {
     if (tab !== activeTab) {
       setTabHistory(prev => [...prev, activeTab]);
-      window.history.pushState({ tab }, '', `#${tab}`);
       setActiveTab(tab);
     }
     setShowDrawer(false);

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useFamily } from '../../context/FamilyContext';
-import { FamilyMember, ActiveTab, FamilyRole, RolePermissions } from '../../types';
+import { FamilyMember, ActiveTab, FamilyRole, RolePermissions, AnniversaryItem } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
+import { AnniversaryModal } from '../AnniversaryModal';
 import { 
   Settings, 
   ShieldCheck, 
@@ -78,7 +79,10 @@ export const AdminSettingsView: React.FC = () => {
     deleteAnniversary,
     menuOrder,
     reorderMenuSections,
-    resetToMockData
+    resetToMockData,
+    wifiSSID: wifiSSIDCtx,
+    wifiPass: wifiPassCtx,
+    updateWifi
   } = useFamily();
 
   const [activeAdminSubtab, setActiveAdminSubtab] = useState<'family' | 'sections' | 'general' | 'meals' | 'contacts' | 'categories' | 'usuarios'>('family');
@@ -103,9 +107,17 @@ export const AdminSettingsView: React.FC = () => {
   const [showContactModal, setShowContactModal] = useState(false);
   const [contactForm, setContactForm] = useState({ name: '', relationOrType: '', phone: '', address: '', notes: '' });
 
+  // Anniversary modal state
+  const [showAnniversaryModal, setShowAnniversaryModal] = useState(false);
+  const [editingAnniversary, setEditingAnniversary] = useState<AnniversaryItem | null>(null);
+
   // General settings state
-  const [wifiSSID, setWifiSSID] = useState(() => localStorage.getItem('fam_wifi_ssid') || 'Familia_Santos_5G');
-  const [wifiPassword, setWifiPassword] = useState(() => localStorage.getItem('fam_wifi_pass') || 'FamiliaSantos2026!');
+  const [wifiSSID, setWifiSSID] = useState(wifiSSIDCtx);
+  const [wifiPassword, setWifiPassword] = useState(wifiPassCtx);
+
+  // Sync WiFi state from context when it loads from Supabase
+  React.useEffect(() => { if (wifiSSIDCtx) setWifiSSID(wifiSSIDCtx); }, [wifiSSIDCtx]);
+  React.useEffect(() => { if (wifiPassCtx) setWifiPassword(wifiPassCtx); }, [wifiPassCtx]);
   const [tempFamilyName, setTempFamilyName] = useState(familyName);
   const [savedGeneralMsg, setSavedGeneralMsg] = useState(false);
 
@@ -184,8 +196,8 @@ export const AdminSettingsView: React.FC = () => {
 
   const handleSaveGeneral = (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('fam_wifi_ssid', wifiSSID);
-    localStorage.setItem('fam_wifi_pass', wifiPassword);
+    if (familyName !== tempFamilyName) updateFamilyName(tempFamilyName);
+    updateWifi(wifiSSID, wifiPassword);
     setSavedGeneralMsg(true);
     setTimeout(() => setSavedGeneralMsg(false), 2500);
   };
@@ -352,16 +364,8 @@ export const AdminSettingsView: React.FC = () => {
               </div>
               <button
                 onClick={() => {
-                  const title = prompt('Título del Aniversario (ej: Aniversario Boda, Santo de Carlos):');
-                  if (!title) return;
-                  const date = prompt('Fecha en formato YYYY-MM-DD (ej: 2015-08-15):');
-                  if (!date) return;
-                  addAnniversary({
-                    title: title.trim(),
-                    type: title.toLowerCase().includes('boda') ? 'Boda' : title.toLowerCase().includes('santo') ? 'Santo' : 'Otro',
-                    date: date.trim(),
-                    memberIds: allMembers.map(m => m.id)
-                  });
+                  setEditingAnniversary(null);
+                  setShowAnniversaryModal(true);
                 }}
                 className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-rose-100 active-touch"
               >
@@ -379,13 +383,27 @@ export const AdminSettingsView: React.FC = () => {
                     </span>
                     <h4 className="font-bold text-xs text-rose-950 mt-1">{ann.title}</h4>
                     <p className="text-[10px] text-slate-500">📅 Fecha: {ann.date}</p>
+                    {ann.notes && <p className="text-[10px] text-slate-400 italic mt-0.5">"{ann.notes}"</p>}
                   </div>
-                  <button
-                    onClick={() => deleteAnniversary(ann.id)}
-                    className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setEditingAnniversary(ann);
+                        setShowAnniversaryModal(true);
+                      }}
+                      className="p-1.5 text-slate-500 hover:bg-rose-100 rounded-lg transition"
+                      title="Editar aniversario"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteAnniversary(ann.id)}
+                      className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition"
+                      title="Eliminar aniversario"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1445,6 +1463,28 @@ export const AdminSettingsView: React.FC = () => {
           }
           setDeletingCatInfo(null);
         }}
+      />
+
+      {/* ANNIVERSARY MODAL */}
+      <AnniversaryModal
+        isOpen={showAnniversaryModal}
+        onClose={() => {
+          setShowAnniversaryModal(false);
+          setEditingAnniversary(null);
+        }}
+        onSave={(annData) => {
+          if (editingAnniversary) {
+            // Edit existing anniversary: delete and re-add or update
+            deleteAnniversary(editingAnniversary.id);
+            addAnniversary(annData);
+          } else {
+            addAnniversary(annData);
+          }
+          setShowAnniversaryModal(false);
+          setEditingAnniversary(null);
+        }}
+        editingAnniversary={editingAnniversary}
+        allMembers={allMembers}
       />
     </div>
   );

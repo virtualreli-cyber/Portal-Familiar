@@ -4,7 +4,7 @@ import { PhoneCall, Plus, Trash2, Wifi, Copy, Check, MapPin, X } from 'lucide-re
 import { ConfirmModal } from '../ConfirmModal';
 
 export const EmergencyContactsView: React.FC = () => {
-  const { emergencyContacts, addEmergencyContact, deleteEmergencyContact } = useFamily();
+  const { emergencyContacts, addEmergencyContact, deleteEmergencyContact, wifiSSID, wifiPass } = useFamily();
 
   const [copiedWifi, setCopiedWifi] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -17,11 +17,11 @@ export const EmergencyContactsView: React.FC = () => {
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
 
-  const wifiName = 'FamiliaSantos_5G';
-  const wifiPass = 'PazYBien2026';
+  const wifiName = wifiSSID || '—';
+  const wifiPassDisplay = wifiPass || '—';
 
   const copyWifi = () => {
-    navigator.clipboard.writeText(`Wi-Fi: ${wifiName} | Clave: ${wifiPass}`);
+    navigator.clipboard.writeText(`Wi-Fi: ${wifiName} | Clave: ${wifiPassDisplay}`);
     setCopiedWifi(true);
     setTimeout(() => setCopiedWifi(false), 3000);
   };
@@ -79,7 +79,7 @@ export const EmergencyContactsView: React.FC = () => {
           <div>
             <h3 className="font-extrabold text-lg text-white">Red Wi-Fi del Hogar</h3>
             <p className="text-xs text-indigo-100 mt-0.5">
-              Red: <span className="font-mono font-bold text-amber-300">{wifiName}</span> | Clave: <span className="font-mono font-bold text-amber-300">{wifiPass}</span>
+              Red: <span className="font-mono font-bold text-amber-300">{wifiName}</span> | Clave: <span className="font-mono font-bold text-amber-300">{wifiPassDisplay}</span>
             </p>
           </div>
         </div>

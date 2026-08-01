@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { FamilyProvider } from './context/FamilyContext';
+import { FamilyProvider, useFamily } from './context/FamilyContext';
 import { ActiveTab } from './types';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
@@ -18,9 +18,59 @@ import { AdminSettingsView } from './components/views/AdminSettingsView';
 import { WeddingView } from './components/views/WeddingView';
 import { getUserPreferences, saveUserPreferences } from './lib/userPreferences';
 
+const VALID_TABS: ActiveTab[] = [
+  'dashboard', 'tasks', 'shopping', 'calendar', 'notes',
+  'meals', 'catholic', 'contacts', 'birthdays', 'finances', 'wedding', 'admin'
+];
+
+const getInitialTab = (): ActiveTab => {
+  if (typeof window !== 'undefined') {
+    const hash = window.location.hash.replace(/^#/, '').trim() as ActiveTab;
+    if (hash && VALID_TABS.includes(hash)) {
+      localStorage.setItem('portal_fam_active_tab', hash);
+      return hash;
+    }
+  }
+  try {
+    const saved = localStorage.getItem('portal_fam_active_tab') as ActiveTab;
+    if (saved && VALID_TABS.includes(saved)) {
+      if (typeof window !== 'undefined' && window.location.hash !== `#${saved}`) {
+        window.history.replaceState(null, '', `#${saved}`);
+      }
+      return saved;
+    }
+  } catch {}
+  return 'dashboard';
+};
+
 const MainContent: React.FC = () => {
   const { currentMember, isLoggedIn, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const { dataLoaded } = useFamily();
+  const [activeTab, setActiveTabState] = useState<ActiveTab>(getInitialTab);
+
+  const setActiveTab = (tab: ActiveTab) => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('portal_fam_active_tab', tab);
+    } catch {}
+    if (typeof window !== 'undefined' && window.location.hash !== `#${tab}`) {
+      window.location.hash = `#${tab}`;
+    }
+  };
+
+  // Keep location hash & localStorage strictly in sync across reloads & back/forward
+  useEffect(() => {
+    const syncTab = () => {
+      const tab = getInitialTab();
+      setActiveTabState(tab);
+    };
+    window.addEventListener('hashchange', syncTab);
+    window.addEventListener('popstate', syncTab);
+    return () => {
+      window.removeEventListener('hashchange', syncTab);
+      window.removeEventListener('popstate', syncTab);
+    };
+  }, []);
 
   // Per-member scroll to top on view change
   useEffect(() => {
@@ -35,13 +85,14 @@ const MainContent: React.FC = () => {
     window.scrollTo(0, 0);
   }, [activeTab, currentMember]);
 
-  // Show loading spinner while restoring session
-  if (loading) {
+  // Show loading spinner while restoring auth session or loading data from Supabase
+  if (loading || !dataLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-900 flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="text-6xl animate-bounce">👨‍👩‍👧‍👦</div>
           <p className="text-white font-bold text-lg animate-pulse">Cargando Portal Familiar…</p>
+          <p className="text-indigo-300 text-sm">Sincronizando datos de la familia</p>
         </div>
       </div>
     );

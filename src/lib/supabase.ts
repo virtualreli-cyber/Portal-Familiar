@@ -36,10 +36,10 @@ export function saveLocalData<T>(key: string, data: T): void {
 export async function sbFetch<T>(table: string): Promise<T[]> {
   try {
     const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: true });
-    if (error) { console.warn(`sbFetch ${table}:`, error.message); return []; }
+    if (error) { console.error(`❌ sbFetch [${table}]:`, error.message, error.details); return []; }
     return (data || []) as T[];
   } catch (e) {
-    console.warn(`sbFetch ${table} exception:`, e);
+    console.error(`❌ sbFetch [${table}] exception:`, e);
     return [];
   }
 }
@@ -48,9 +48,9 @@ export async function sbFetch<T>(table: string): Promise<T[]> {
 export async function sbUpsert(table: string, row: Record<string, unknown>): Promise<void> {
   try {
     const { error } = await supabase.from(table).upsert(row, { onConflict: 'id' });
-    if (error) console.warn(`sbUpsert ${table}:`, error.message);
+    if (error) console.error(`❌ sbUpsert [${table}]:`, error.message, error.details);
   } catch (e) {
-    console.warn(`sbUpsert ${table} exception:`, e);
+    console.error(`❌ sbUpsert [${table}] exception:`, e);
   }
 }
 
@@ -58,9 +58,9 @@ export async function sbUpsert(table: string, row: Record<string, unknown>): Pro
 export async function sbDelete(table: string, id: string): Promise<void> {
   try {
     const { error } = await supabase.from(table).delete().eq('id', id);
-    if (error) console.warn(`sbDelete ${table}:`, error.message);
+    if (error) console.error(`❌ sbDelete [${table}] (id=${id}):`, error.message, error.details);
   } catch (e) {
-    console.warn(`sbDelete ${table} exception:`, e);
+    console.error(`❌ sbDelete [${table}] exception:`, e);
   }
 }
 
@@ -69,9 +69,9 @@ export async function sbUpsertMany(table: string, rows: Record<string, unknown>[
   if (!rows.length) return;
   try {
     const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
-    if (error) console.warn(`sbUpsertMany ${table}:`, error.message);
+    if (error) console.error(`❌ sbUpsertMany [${table}]:`, error.message, error.details);
   } catch (e) {
-    console.warn(`sbUpsertMany ${table} exception:`, e);
+    console.error(`❌ sbUpsertMany [${table}] exception:`, e);
   }
 }
 
