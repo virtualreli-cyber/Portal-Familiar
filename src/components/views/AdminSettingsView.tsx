@@ -361,9 +361,6 @@ export const AdminSettingsView: React.FC = () => {
                   <div className="space-y-1 text-xs text-slate-600 pt-2 border-t border-slate-200/60">
                     <p><span className="font-bold">Teléfono:</span> {m.phone || 'No especificado'}</p>
                     <p><span className="font-bold">Tallas:</span> Ropa: {m.clothingSizes?.shirt || '-'}, Calzado: {m.clothingSizes?.shoes || '-'}</p>
-                    {m.allergies && m.allergies.length > 0 && (
-                      <p><span className="font-bold text-rose-600">Alergias:</span> {m.allergies.join(', ')}</p>
-                    )}
                   </div>
                 </div>
               ))}
@@ -883,91 +880,6 @@ export const AdminSettingsView: React.FC = () => {
                 className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-xs active-touch"
               >
                 Crear Lista
-              </button>
-            </div>
-          </div>
-
-          {/* Tasks Categories Editor (Vertical List with Reordering & Drag and Drop) */}
-          <div className="space-y-3 bg-amber-50/50 p-4 rounded-2xl border border-amber-200">
-            <h4 className="font-bold text-xs text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
-              <span>Categorías de Tareas (Arrastra o usa ▲/▼)</span>
-            </h4>
-
-            <div className="space-y-2 max-w-md">
-              {customCategories.tasks.map((cat, idx) => (
-                <div 
-                  key={cat} 
-                  draggable
-                  onDragStart={() => setDragItem({ type: 'tasks', index: idx })}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => {
-                    if (dragItem && dragItem.type === 'tasks' && dragItem.index !== idx) {
-                      const arr = [...customCategories.tasks];
-                      const [removed] = arr.splice(dragItem.index, 1);
-                      arr.splice(idx, 0, removed);
-                      reorderCategories('tasks', arr);
-                      setDragItem(null);
-                    }
-                  }}
-                  className="px-3.5 py-2 bg-white text-amber-950 font-bold rounded-xl text-xs flex items-center justify-between border border-amber-200 shadow-2xs cursor-grab active:cursor-grabbing hover:border-amber-400 transition"
-                >
-                  <div className="flex items-center gap-2">
-                    <GripVertical className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>{cat}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      disabled={idx === 0}
-                      onClick={() => {
-                        const arr = [...customCategories.tasks];
-                        [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-                        reorderCategories('tasks', arr);
-                      }}
-                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-amber-200 disabled:opacity-30 text-amber-900 font-extrabold"
-                      title="Subir posición"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      disabled={idx === customCategories.tasks.length - 1}
-                      onClick={() => {
-                        const arr = [...customCategories.tasks];
-                        [arr[idx + 1], arr[idx]] = [arr[idx], arr[idx + 1]];
-                        reorderCategories('tasks', arr);
-                      }}
-                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-amber-200 disabled:opacity-30 text-amber-900 font-extrabold"
-                      title="Bajar posición"
-                    >
-                      ▼
-                    </button>
-                    <button
-                      onClick={() => setDeletingCatInfo({ type: 'tasks', name: cat })}
-                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg ml-1"
-                      title="Eliminar categoría"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-2 pt-1 max-w-sm">
-              <input
-                type="text"
-                value={newCatTask}
-                onChange={e => setNewCatTask(e.target.value)}
-                placeholder="Nueva categoría de tareas..."
-                className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none"
-              />
-              <button
-                onClick={() => {
-                  addCategory('tasks', newCatTask);
-                  setNewCatTask('');
-                }}
-                className="px-4 py-2 bg-amber-500 text-white font-bold text-xs rounded-xl shadow-xs"
-              >
-                Añadir Categoría
               </button>
             </div>
           </div>

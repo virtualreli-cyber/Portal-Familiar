@@ -148,7 +148,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
               title="Ir a Mis Tareas"
             >
               <CheckSquare className="w-4 h-4 text-slate-900" />
-              <span>{myPendingTasks.length} Tareas pendientes</span>
+              <span>{myPendingTasks.length} Mis tareas pendientes</span>
             </button>
           </div>
         </div>
@@ -414,7 +414,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                 <CheckSquare className="w-5 h-5" />
               </div>
               <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-extrabold text-[10px] rounded-full">
-                {myPendingTasks.length} pendientes
+                {myPendingTasks.length} mis pendientes
               </span>
             </div>
             <div>

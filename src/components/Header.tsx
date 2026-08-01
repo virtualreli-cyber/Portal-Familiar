@@ -53,8 +53,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [tabHistory, setTabHistory] = useState<ActiveTab[]>(['dashboard']);
 
-  const pendingValidationTasksCount = tasks.filter(t => t.validationStatus === 'pending_approval').length;
-  const pendingTasksCount = tasks.filter(t => !t.completed && (!t.assignedMemberId || t.assignedMemberId === currentMember?.id)).length;
+  const totalPendingTasksCount = tasks.filter(t => !t.completed).length;
+  const urgentTasksCount = tasks.filter(t => !t.completed && t.priority === 'Alta').length;
   const urgentShoppingCount = shoppingItems.filter(s => !s.completed && s.urgent).length;
 
   const handleNavigate = (tab: ActiveTab) => {
@@ -91,10 +91,36 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     label: string;
     icon: React.ReactNode;
     badge?: string;
+    customBadge?: React.ReactNode;
     show: boolean;
   }> = [
     { id: 'dashboard', label: 'Inicio', icon: <Home className="w-5 h-5 text-indigo-600" />, show: true },
-    { id: 'tasks', label: 'Tareas', icon: <CheckSquare className="w-5 h-5 text-amber-500" />, badge: isAdmin && pendingValidationTasksCount > 0 ? `!${pendingValidationTasksCount} aviso` : (pendingTasksCount > 0 ? `${pendingTasksCount}` : undefined), show: true },
+    { 
+      id: 'tasks', 
+      label: 'Tareas', 
+      icon: <CheckSquare className="w-5 h-5 text-amber-500" />, 
+      customBadge: (
+        <div className="flex items-center gap-1">
+          {urgentTasksCount > 0 && (
+            <span 
+              className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-600 text-white shadow-2xs" 
+              title={`${urgentTasksCount} tareas urgentes (Prioridad Alta)`}
+            >
+              🔥 {urgentTasksCount}
+            </span>
+          )}
+          {totalPendingTasksCount > 0 && (
+            <span 
+              className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-800 text-white" 
+              title={`${totalPendingTasksCount} tareas pendientes totales`}
+            >
+              📋 {totalPendingTasksCount}
+            </span>
+          )}
+        </div>
+      ), 
+      show: true 
+    },
     { id: 'shopping', label: 'Lista Compra', icon: <ShoppingBag className="w-5 h-5 text-emerald-600" />, badge: urgentShoppingCount > 0 ? `!${urgentShoppingCount}` : undefined, show: permissions.canManageShopping },
     { id: 'calendar', label: 'Calendario', icon: <Calendar className="w-5 h-5 text-indigo-600" />, show: permissions.canManageCalendar },
     { id: 'notes', label: 'Notas de Nevera', icon: <StickyNote className="w-5 h-5 text-yellow-600" />, show: true },
@@ -282,13 +308,15 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {item.badge && (
+                    {item.customBadge ? (
+                      item.customBadge
+                    ) : item.badge ? (
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
                         isActive ? 'bg-white text-indigo-900' : 'bg-rose-500 text-white'
                       }`}>
                         {item.badge}
                       </span>
-                    )}
+                    ) : null}
                     <ChevronRight className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                   </div>
                 </button>

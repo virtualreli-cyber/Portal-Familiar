@@ -91,7 +91,7 @@ export const INITIAL_MEMBERS: FamilyMember[] = [
     points: 350,
     phone: '+34 600 111 222',
     clothingSizes: { shirt: 'L', pants: '42', shoes: '43' },
-    allergies: ['Polen'],
+    allergies: [],
     notes: 'Administrador principal del hogar'
   },
   {
