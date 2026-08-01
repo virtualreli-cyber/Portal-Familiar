@@ -107,3 +107,17 @@ html.dark textarea {
   color: #f8fafc !important;
   border-color: #475569 !important;
 }
+
+/* Subtle discrete horizontal scroll indicator hint */
+.horizontal-scroll-hint {
+  mask-image: linear-gradient(to right, black 92%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 92%, transparent 100%);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

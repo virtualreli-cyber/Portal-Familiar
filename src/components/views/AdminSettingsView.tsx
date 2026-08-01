@@ -167,12 +167,27 @@ export const AdminSettingsView: React.FC = () => {
     setShowMemberModal(true);
   };
 
+  const calculateAge = (birthDate?: string): number => {
+    if (!birthDate) return 0;
+    const birth = new Date(birthDate + 'T00:00:00');
+    if (isNaN(birth.getTime())) return 0;
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    return Math.max(0, age);
+  };
+
   const handleSaveMember = (e: React.FormEvent) => {
     e.preventDefault();
     if (!memberForm.name) return;
 
+    const computedAge = calculateAge(memberForm.birthDate);
+
     if (editingMember) {
-      updateMemberDetails(editingMember.id, memberForm);
+      updateMemberDetails(editingMember.id, { ...memberForm, age: computedAge });
     } else {
       addMember({
         name: memberForm.name || 'Nuevo Miembro',
@@ -180,7 +195,7 @@ export const AdminSettingsView: React.FC = () => {
         avatar: memberForm.avatar || '👦',
         color: memberForm.color || 'bg-indigo-600 text-white',
         birthDate: memberForm.birthDate || '2015-01-01',
-        age: memberForm.age || 10,
+        age: computedAge,
         gender: memberForm.gender || 'Masculino',
         points: memberForm.points || 50,
         clothingSizes: memberForm.clothingSizes,
@@ -1178,20 +1193,10 @@ export const AdminSettingsView: React.FC = () => {
                   className="w-full px-3.5 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 {memberForm.birthDate && (
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    📅 {new Date(memberForm.birthDate + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  <p className="text-[10px] font-semibold text-indigo-600 mt-1">
+                    📅 {new Date(memberForm.birthDate + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })} ({calculateAge(memberForm.birthDate)} años - calculado automáticamente)
                   </p>
                 )}
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Edad</label>
-                <input
-                  type="number"
-                  value={memberForm.age || 10}
-                  onChange={e => setMemberForm({ ...memberForm, age: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3.5 py-2.5 border rounded-xl outline-none"
-                />
               </div>
 
               <div>

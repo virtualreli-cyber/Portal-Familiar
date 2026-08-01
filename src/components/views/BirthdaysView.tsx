@@ -7,22 +7,23 @@ import {
   Plus, 
   Gift, 
   Trash2, 
+  Edit3,
   X, 
   Sparkles,
-  Heart,
-  Calendar,
-  UserCheck
+  Calendar
 } from 'lucide-react';
 
 export const BirthdaysView: React.FC = () => {
-  const { anniversaries, birthdays, addGiftIdea, toggleGiftStatus, deleteBirthday } = useFamily();
+  const { anniversaries, birthdays, addGiftIdea, editGiftIdea, deleteGiftIdea, toggleGiftStatus, deleteBirthday } = useFamily();
   const { allMembers } = useAuth();
 
   const [activeGiftModalBdayId, setActiveGiftModalBdayId] = useState<string | null>(null);
+  const [editingGift, setEditingGift] = useState<{ bdayId: string; gift: GiftIdea } | null>(null);
 
   // Gift idea form
   const [giftTitle, setGiftTitle] = useState('');
   const [giftCost, setGiftCost] = useState('');
+  const [giftStatus, setGiftStatus] = useState<GiftIdea['status']>('Idea');
 
   // Combine items: Family Members with birthDate + Anniversaries + Standalone Birthdays
   const combinedItems = React.useMemo(() => {
@@ -32,7 +33,6 @@ export const BirthdaysView: React.FC = () => {
       relationship: string;
       dateStr: string;
       avatar: string;
-      notes?: string;
       type: 'member' | 'anniversary' | 'custom';
       giftIdeas: GiftIdea[];
     }> = [];
@@ -47,7 +47,6 @@ export const BirthdaysView: React.FC = () => {
           relationship: `Miembro (${m.role})`,
           dateStr: m.birthDate,
           avatar: m.avatar || '👤',
-          notes: m.notes,
           type: 'member',
           giftIdeas: bdayEntry?.giftIdeas || []
         });
@@ -63,7 +62,6 @@ export const BirthdaysView: React.FC = () => {
         relationship: `Aniversario (${a.type})`,
         dateStr: a.date,
         avatar: a.type === 'Boda' ? '💍' : a.type === 'Santo' ? '😇' : '❤️',
-        notes: a.notes,
         type: 'anniversary',
         giftIdeas: bdayEntry?.giftIdeas || []
       });
@@ -79,7 +77,6 @@ export const BirthdaysView: React.FC = () => {
           relationship: b.relationship,
           dateStr: b.birthDate,
           avatar: b.avatar || '🎂',
-          notes: b.notes,
           type: 'custom',
           giftIdeas: b.giftIdeas || []
         });
@@ -89,18 +86,50 @@ export const BirthdaysView: React.FC = () => {
     return list;
   }, [allMembers, anniversaries, birthdays]);
 
-  const handleCreateGiftIdea = (e: React.FormEvent) => {
+  const handleOpenAddGift = (bdayId: string) => {
+    setEditingGift(null);
+    setGiftTitle('');
+    setGiftCost('');
+    setGiftStatus('Idea');
+    setActiveGiftModalBdayId(bdayId);
+  };
+
+  const handleOpenEditGift = (bdayId: string, gift: GiftIdea, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingGift({ bdayId, gift });
+    setGiftTitle(gift.title);
+    setGiftCost(gift.estimatedCost !== undefined && gift.estimatedCost !== null ? gift.estimatedCost.toString() : '');
+    setGiftStatus(gift.status);
+    setActiveGiftModalBdayId(bdayId);
+  };
+
+  const handleDeleteGift = (bdayId: string, giftId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteGiftIdea(bdayId, giftId);
+  };
+
+  const handleSaveGiftIdea = (e: React.FormEvent) => {
     e.preventDefault();
     if (!giftTitle.trim() || !activeGiftModalBdayId) return;
 
-    addGiftIdea(activeGiftModalBdayId, {
-      title: giftTitle.trim(),
-      estimatedCost: giftCost ? parseFloat(giftCost) : undefined,
-      status: 'Idea'
-    });
+    if (editingGift) {
+      editGiftIdea(activeGiftModalBdayId, editingGift.gift.id, {
+        title: giftTitle.trim(),
+        estimatedCost: giftCost ? parseFloat(giftCost) : undefined,
+        status: giftStatus
+      });
+    } else {
+      addGiftIdea(activeGiftModalBdayId, {
+        title: giftTitle.trim(),
+        estimatedCost: giftCost ? parseFloat(giftCost) : undefined,
+        status: giftStatus
+      });
+    }
 
     setGiftTitle('');
     setGiftCost('');
+    setGiftStatus('Idea');
+    setEditingGift(null);
     setActiveGiftModalBdayId(null);
   };
 
@@ -187,12 +216,6 @@ export const BirthdaysView: React.FC = () => {
                     )}
                   </div>
 
-                  {item.notes && (
-                    <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
-                      "{item.notes}"
-                    </p>
-                  )}
-
                   {/* Gift Ideas Section */}
                   <div className="space-y-2 pt-1">
                     <div className="flex items-center justify-between">
@@ -201,7 +224,7 @@ export const BirthdaysView: React.FC = () => {
                       </h4>
 
                       <button
-                        onClick={() => setActiveGiftModalBdayId(item.id)}
+                        onClick={() => handleOpenAddGift(item.id)}
                         className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 active-touch"
                       >
                         <Plus className="w-3.5 h-3.5" /> Añadir Regalo
@@ -215,21 +238,41 @@ export const BirthdaysView: React.FC = () => {
                         {item.giftIdeas.map(gift => (
                           <div
                             key={gift.id}
-                            onClick={() => toggleGiftStatus(item.id, gift.id)}
-                            className="bg-slate-50 hover:bg-slate-100 p-2.5 rounded-2xl border border-slate-200 flex items-center justify-between gap-2 cursor-pointer transition active-touch text-xs"
+                            className="bg-slate-50 hover:bg-slate-100 p-2.5 rounded-2xl border border-slate-200 flex items-center justify-between gap-2 transition text-xs group"
                           >
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${getStatusBadge(gift.status)}`}>
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <button
+                                onClick={() => toggleGiftStatus(item.id, gift.id)}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border shrink-0 active-touch ${getStatusBadge(gift.status)}`}
+                                title="Cambiar estado del regalo"
+                              >
                                 {gift.status}
-                              </span>
-                              <span className="font-semibold text-slate-800">{gift.title}</span>
+                              </button>
+                              <span className="font-semibold text-slate-800 truncate">{gift.title}</span>
                             </div>
 
-                            {gift.estimatedCost !== undefined && gift.estimatedCost !== null && (
-                              <span className="font-bold text-slate-700">
-                                {gift.estimatedCost.toFixed(2)} €
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {gift.estimatedCost !== undefined && gift.estimatedCost !== null && (
+                                <span className="font-bold text-slate-700">
+                                  {gift.estimatedCost.toFixed(2)} €
+                                </span>
+                              )}
+
+                              <button
+                                onClick={(e) => handleOpenEditGift(item.id, gift, e)}
+                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition active-touch"
+                                title="Editar regalo"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteGift(item.id, gift.id, e)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition active-touch"
+                                title="Eliminar regalo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         ))}
                         {totalGiftEst > 0 && (
@@ -247,7 +290,7 @@ export const BirthdaysView: React.FC = () => {
         )}
       </div>
 
-      {/* CREATE GIFT IDEA MODAL */}
+      {/* ADD / EDIT GIFT IDEA MODAL */}
       {activeGiftModalBdayId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col">
@@ -255,19 +298,19 @@ export const BirthdaysView: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Gift className="w-5 h-5" />
                 <div>
-                  <h3 className="font-bold text-lg leading-tight">Añadir Idea de Regalo</h3>
+                  <h3 className="font-bold text-lg leading-tight">{editingGift ? 'Editar Idea de Regalo' : 'Añadir Idea de Regalo'}</h3>
                   <p className="text-xs text-rose-100">Para {activeTargetName}</p>
                 </div>
               </div>
               <button 
-                onClick={() => setActiveGiftModalBdayId(null)}
+                onClick={() => { setActiveGiftModalBdayId(null); setEditingGift(null); }}
                 className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"
               >
                 <X className="w-4 h-4 text-white" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateGiftIdea} className="p-5 space-y-4">
+            <form onSubmit={handleSaveGiftIdea} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Título del Regalo *</label>
                 <input
@@ -278,6 +321,19 @@ export const BirthdaysView: React.FC = () => {
                   onChange={(e) => setGiftTitle(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-rose-500 focus:outline-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Estado del Regalo</label>
+                <select
+                  value={giftStatus}
+                  onChange={(e) => setGiftStatus(e.target.value as GiftIdea['status'])}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                >
+                  <option value="Idea">Idea</option>
+                  <option value="Reservado">Reservado</option>
+                  <option value="Comprado">Comprado</option>
+                </select>
               </div>
 
               <div>
@@ -295,7 +351,7 @@ export const BirthdaysView: React.FC = () => {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setActiveGiftModalBdayId(null)}
+                  onClick={() => { setActiveGiftModalBdayId(null); setEditingGift(null); }}
                   className="flex-1 py-3 border border-slate-200 rounded-xl font-semibold text-slate-600 text-sm active-touch"
                 >
                   Cancelar
@@ -304,7 +360,7 @@ export const BirthdaysView: React.FC = () => {
                   type="submit"
                   className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-lg shadow-rose-200 text-sm active-touch"
                 >
-                  Guardar Regalo
+                  {editingGift ? 'Guardar Cambios' : 'Guardar Regalo'}
                 </button>
               </div>
             </form>

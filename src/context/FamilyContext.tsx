@@ -132,6 +132,8 @@ interface FamilyContextType {
   deleteBirthday: (id: string) => void;
   updateBirthdayById: (id: string, patch: Partial<BirthdayItem>) => void;
   addGiftIdea: (birthdayId: string, titleOrObj: string | Omit<GiftIdea, 'id'>, cost?: number) => void;
+  editGiftIdea: (birthdayId: string, giftId: string, updated: Partial<GiftIdea>) => void;
+  deleteGiftIdea: (birthdayId: string, giftId: string) => void;
   updateGiftIdeaStatus: (birthdayId: string, giftId: string, status: GiftIdea['status']) => void;
   toggleGiftStatus: (birthdayId: string, giftId: string) => void;
 
@@ -1092,6 +1094,34 @@ const generateId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? c
       return d;
     });
   };
+  const editGiftIdea = (birthdayId: string, giftId: string, updated: Partial<GiftIdea>) => {
+    setBirthdays(prev => {
+      const d = prev.map(b => b.id === birthdayId
+        ? { ...b, giftIdeas: b.giftIdeas.map(g => g.id === giftId ? { ...g, ...updated } : g) }
+        : b);
+      const found = d.find(b => b.id === birthdayId);
+      if (found) {
+        const row = toBirthdayRow(found);
+        sbUpsert('birthdays', row);
+        broadcastRealtime({ table: 'birthdays', eventType: 'UPDATE', newRow: row });
+      }
+      return d;
+    });
+  };
+  const deleteGiftIdea = (birthdayId: string, giftId: string) => {
+    setBirthdays(prev => {
+      const d = prev.map(b => b.id === birthdayId
+        ? { ...b, giftIdeas: b.giftIdeas.filter(g => g.id !== giftId) }
+        : b);
+      const found = d.find(b => b.id === birthdayId);
+      if (found) {
+        const row = toBirthdayRow(found);
+        sbUpsert('birthdays', row);
+        broadcastRealtime({ table: 'birthdays', eventType: 'UPDATE', newRow: row });
+      }
+      return d;
+    });
+  };
 
   // ── Sticky Notes ──────────────────────────────────────────────────────────
   const addStickyNote = (note: Omit<StickyNote,'id'|'createdAt'>) => {
@@ -1239,7 +1269,7 @@ const generateId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? c
       claimReward, requestReward, approveRewardRequest, rejectRewardRequest, enjoyReward, revokeRewardRequest,
       addShoppingItem, editShoppingItem, toggleShoppingItem, deleteShoppingItem, clearCompletedShopping,
       updateMealPlanDay,
-      addBirthday, deleteBirthday, updateBirthdayById, addGiftIdea, updateGiftIdeaStatus, toggleGiftStatus,
+      addBirthday, deleteBirthday, updateBirthdayById, addGiftIdea, editGiftIdea, deleteGiftIdea, updateGiftIdeaStatus, toggleGiftStatus,
       addStickyNote, editStickyNote, togglePinNote, deleteStickyNote,
       addExpense, toggleExpensePaid, deleteExpense,
       addEmergencyContact, deleteEmergencyContact,

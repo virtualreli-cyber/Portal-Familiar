@@ -6,9 +6,7 @@ import {
   Calendar, 
   CheckSquare, 
   ShoppingBag, 
-  UtensilsCrossed, 
   Cross, 
-  Clock, 
   Sparkles,
   Bell,
   CheckCircle2,
@@ -16,7 +14,8 @@ import {
   Gift,
   Cake,
   PhoneCall,
-  ChevronRight
+  ChevronRight,
+  Pin
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -31,6 +30,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     rewardRequests,
     intentions,
     anniversaries,
+    stickyNotes,
     approveTaskValidation,
     rejectTaskValidation,
     approveRewardRequest,
@@ -69,7 +69,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     daysRemaining: number;
   }> = [];
 
-  // ALL Family Members Birthdays (Request 1)
+  // ALL Family Members Birthdays
   allMembers.forEach(member => {
     if (!member.birthDate) return;
     const parts = member.birthDate.split('-');
@@ -94,7 +94,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     });
   });
 
-  // ALL Anniversaries (Request 1)
+  // ALL Anniversaries
   anniversaries.forEach(ann => {
     if (!ann.date) return;
     const parts = ann.date.split('-');
@@ -131,7 +131,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             <span className="text-3xl sm:text-4xl">{currentMember.avatar}</span>
           </h2>
 
-          {/* Member's Involvement Badges - Interactive Navigation Buttons (Request 3) */}
+          {/* Member's Involvement Badges */}
           <div className="flex items-center gap-2.5 flex-wrap pt-1">
             <button
               onClick={() => setActiveTab('calendar')}
@@ -185,7 +185,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
       )}
 
-      {/* PARENTS NOTIFICATION CENTER (ÚNICAMENTE EN PANTALLA DE INICIO) */}
+      {/* PARENTS NOTIFICATION CENTER */}
       {isAdmin && (pendingTaskValidations.length > 0 || pendingRewardValidations.length > 0) && (
         <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-5 sm:p-6 rounded-3xl shadow-xl space-y-4 animate-fade-in">
           <div className="flex items-center justify-between border-b border-white/20 pb-3">
@@ -210,7 +210,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                       <div className="text-xs">
                         <p className="font-bold text-white truncate">{t.title}</p>
                         <p className="text-[10px] text-amber-100">
-                          Aviso por: <span className="font-bold">{reqMember?.name || 'Miembro'}</span> (+{t.points} pts)
+                          Aviso por: <span className="font-bold">{reqMember?.name || 'Miembro'}</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -244,7 +244,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                     <div className="text-xs">
                       <p className="font-bold text-white truncate">{r.rewardTitle}</p>
                       <p className="text-[10px] text-amber-100">
-                        Por: <span className="font-bold">{r.memberName}</span> ({r.pointsCost} pts)
+                        Por: <span className="font-bold">{r.memberName}</span>
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -268,6 +268,60 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
           )}
         </div>
       )}
+
+      {/* FRIDGE NOTES SECTION (Reemplaza el Menú Semanal en Inicio - Request 9) */}
+      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-xl bg-amber-100 text-amber-700">
+              <Pin className="w-5 h-5" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Notas de la Nevera</h3>
+          </div>
+          <button
+            onClick={() => setActiveTab('notes')}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 active-touch"
+          >
+            Ver Nevera <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Compact Horizontal Scrollable Row for Sticky Notes (Request 9 & 10) */}
+        {stickyNotes.length === 0 ? (
+          <p className="text-xs text-slate-400 italic text-center py-2">No hay notas pegadas en la nevera.</p>
+        ) : (
+          <div className="relative">
+            <div className="flex items-stretch gap-3 overflow-x-auto pb-2 no-scrollbar horizontal-scroll-hint">
+              {stickyNotes.map(note => (
+                <div
+                  key={note.id}
+                  onClick={() => setActiveTab('notes')}
+                  className={`p-3 rounded-2xl border shadow-xs transition active-touch cursor-pointer min-w-[170px] sm:min-w-[190px] max-w-[210px] shrink-0 flex flex-col justify-between space-y-1.5 ${
+                    note.color === 'yellow' ? 'bg-amber-100 border-amber-300 text-amber-950' :
+                    note.color === 'pink' ? 'bg-pink-100 border-pink-300 text-pink-950' :
+                    note.color === 'blue' ? 'bg-blue-100 border-blue-300 text-blue-950' :
+                    note.color === 'purple' ? 'bg-purple-100 border-purple-300 text-purple-950' :
+                    'bg-emerald-100 border-emerald-300 text-emerald-950'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-1">
+                      <h4 className="font-extrabold text-xs leading-tight line-clamp-1">{note.title}</h4>
+                      {note.pinned && <Pin className="w-3 h-3 text-rose-600 shrink-0" />}
+                    </div>
+                    <p className="text-[11px] leading-snug line-clamp-3 opacity-90">{note.content}</p>
+                  </div>
+                  {note.author && (
+                    <p className="text-[9px] font-bold opacity-75 text-right pt-1 border-t border-black/10">
+                      — {note.author}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* CATHOLIC PRAYER INTENTIONS BANNER */}
       {activeIntentions.length > 0 && (
@@ -298,7 +352,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
       )}
 
-      {/* UPCOMING BIRTHDAYS & ANNIVERSARIES (Horizontal Scroll Container for ALL members - Request 1) */}
+      {/* UPCOMING BIRTHDAYS & ANNIVERSARIES */}
       <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -315,8 +369,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
           </button>
         </div>
 
-        {/* Horizontal Scroll Bar for ALL members (Request 1) */}
-        <div className="flex items-center gap-3 overflow-x-auto pb-2 no-scrollbar">
+        {/* Horizontal Scroll Bar */}
+        <div className="flex items-center gap-3 overflow-x-auto pb-2 no-scrollbar horizontal-scroll-hint">
           {upcomingEventsList.map(item => {
             const isToday = item.daysRemaining === 0;
             const daysLabel = isToday ? '¡Hoy!' : item.daysRemaining === 1 ? 'Mañana' : `En ${item.daysRemaining} d.`;
@@ -345,7 +399,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
       </div>
 
-      {/* DASHBOARD SECTION SUMMARY CARDS (Without Cumpleaños & Rincón Católico - Request 5) */}
+      {/* DASHBOARD SECTION SUMMARY CARDS */}
       <div className="space-y-3">
         <h3 className="font-extrabold text-slate-900 text-base">Secciones Principales</h3>
 
@@ -365,7 +419,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             </div>
             <div>
               <h4 className="font-extrabold text-xs sm:text-sm text-slate-900">Tareas del Hogar</h4>
-              <p className="text-[10px] text-slate-500 mt-0.5">Listas de tareas y recompensas</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Listas de tareas</p>
             </div>
           </div>
 
@@ -421,23 +475,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             <div>
               <h4 className="font-extrabold text-xs sm:text-sm text-slate-900">Contactos</h4>
               <p className="text-[10px] text-slate-500 mt-0.5">Médicos, colegio y emergencias</p>
-            </div>
-          </div>
-
-          {/* 5. Menú Semanal */}
-          <div 
-            onClick={() => setActiveTab('meals')}
-            className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs hover:shadow-md hover:border-teal-300 transition cursor-pointer flex flex-col justify-between space-y-3 active-touch col-span-2 sm:col-span-1"
-          >
-            <div className="flex items-center justify-between">
-              <div className="p-2.5 rounded-2xl bg-teal-100 text-teal-700">
-                <UtensilsCrossed className="w-5 h-5" />
-              </div>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-            </div>
-            <div>
-              <h4 className="font-extrabold text-xs sm:text-sm text-slate-900">Menú Semanal</h4>
-              <p className="text-[10px] text-slate-500 mt-0.5">Comidas y cenas programadas</p>
             </div>
           </div>
         </div>

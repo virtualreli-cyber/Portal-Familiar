@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
-import { PhoneCall, Plus, Trash2, Wifi, Copy, Check, MapPin, X } from 'lucide-react';
+import { PhoneCall, Plus, Trash2, Edit3, Wifi, Copy, Check, MapPin, X } from 'lucide-react';
+import { EmergencyContact } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 
 export const EmergencyContactsView: React.FC = () => {
@@ -8,6 +9,7 @@ export const EmergencyContactsView: React.FC = () => {
 
   const [copiedWifi, setCopiedWifi] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingContact, setEditingContact] = useState<EmergencyContact | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
   // Contact form
@@ -26,9 +28,33 @@ export const EmergencyContactsView: React.FC = () => {
     setTimeout(() => setCopiedWifi(false), 3000);
   };
 
-  const handleCreateContact = (e: React.FormEvent) => {
+  const handleOpenAdd = () => {
+    setEditingContact(null);
+    setName('');
+    setRelationOrType('');
+    setPhone('');
+    setAddress('');
+    setNotes('');
+    setShowAddModal(true);
+  };
+
+  const handleOpenEdit = (c: EmergencyContact) => {
+    setEditingContact(c);
+    setName(c.name);
+    setRelationOrType(c.relationOrType || '');
+    setPhone(c.phone);
+    setAddress(c.address || '');
+    setNotes(c.notes || '');
+    setShowAddModal(true);
+  };
+
+  const handleSaveContact = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !phone.trim()) return;
+
+    if (editingContact) {
+      deleteEmergencyContact(editingContact.id);
+    }
 
     addEmergencyContact({
       name: name.trim(),
@@ -42,6 +68,7 @@ export const EmergencyContactsView: React.FC = () => {
     setPhone('');
     setAddress('');
     setNotes('');
+    setEditingContact(null);
     setShowAddModal(false);
   };
 
@@ -62,7 +89,7 @@ export const EmergencyContactsView: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={handleOpenAdd}
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1 shadow-md shadow-blue-200 active-touch shrink-0"
         >
           <Plus className="w-4 h-4" />
@@ -102,12 +129,22 @@ export const EmergencyContactsView: React.FC = () => {
                 <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full">
                   {contact.relationOrType}
                 </span>
-                <button
-                  onClick={() => setDeletingContactId(contact.id)}
-                  className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition active-touch"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleOpenEdit(contact)}
+                    className="p-1 text-slate-400 hover:text-indigo-600 rounded-lg transition active-touch"
+                    title="Editar contacto"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setDeletingContactId(contact.id)}
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded-lg transition active-touch"
+                    title="Eliminar contacto"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <h4 className="font-bold text-slate-900 text-base mt-2">{contact.name}</h4>
@@ -138,24 +175,24 @@ export const EmergencyContactsView: React.FC = () => {
         ))}
       </div>
 
-      {/* CREATE CONTACT MODAL */}
+      {/* CREATE / EDIT CONTACT MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col">
             <div className="bg-blue-600 text-white p-5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <PhoneCall className="w-5 h-5" />
-                <h3 className="font-bold text-lg">Nuevo Contacto del Hogar</h3>
+                <h3 className="font-bold text-lg">{editingContact ? 'Editar Contacto' : 'Nuevo Contacto del Hogar'}</h3>
               </div>
               <button 
-                onClick={() => setShowAddModal(false)}
+                onClick={() => { setShowAddModal(false); setEditingContact(null); }}
                 className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center"
               >
                 <X className="w-4 h-4 text-white" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateContact} className="p-5 space-y-4">
+            <form onSubmit={handleSaveContact} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre / Entidad *</label>
                 <input
@@ -217,7 +254,7 @@ export const EmergencyContactsView: React.FC = () => {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => { setShowAddModal(false); setEditingContact(null); }}
                   className="flex-1 py-3 border border-slate-200 rounded-xl font-semibold text-slate-600 text-sm active-touch"
                 >
                   Cancelar
@@ -226,7 +263,7 @@ export const EmergencyContactsView: React.FC = () => {
                   type="submit"
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-200 text-sm active-touch"
                 >
-                  Guardar Contacto
+                  {editingContact ? 'Guardar Cambios' : 'Guardar Contacto'}
                 </button>
               </div>
             </form>
