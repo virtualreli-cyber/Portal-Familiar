@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { CalendarEvent, EventCategory } from '../../types';
 import { getTodaySaint } from '../../data/santoral';
 import { getUserPreferences, saveUserPreferences } from '../../lib/userPreferences';
@@ -69,6 +70,8 @@ export const CalendarView: React.FC = () => {
   };
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
+
+  useBodyScrollLock(showAddModal || deletingEventId !== null);
 
   // Form state for adding event
   const [title, setTitle] = useState('');
@@ -157,7 +160,7 @@ export const CalendarView: React.FC = () => {
     }).map(mb => ({
       id: `mb_${mb.id}`,
       name: mb.name,
-      relationship: mb.role as string,
+      relationship: 'Cumpleaños',
       avatar: mb.avatar || '🎂'
     }));
 

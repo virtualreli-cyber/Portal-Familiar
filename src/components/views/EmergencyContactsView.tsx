@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { PhoneCall, Plus, Trash2, Edit3, Wifi, Copy, Check, MapPin, X } from 'lucide-react';
 import { EmergencyContact } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
@@ -11,6 +12,8 @@ export const EmergencyContactsView: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingContact, setEditingContact] = useState<EmergencyContact | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+
+  useBodyScrollLock(showAddModal || deletingContactId !== null);
 
   // Contact form
   const [name, setName] = useState('');

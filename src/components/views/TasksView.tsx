@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { Priority, Frequency, TaskItem } from '../../types';
 import { 
   CheckSquare, 
@@ -27,13 +28,32 @@ export const TasksView: React.FC = () => {
   } = useFamily();
   const { currentMember, allMembers, isAdmin } = useAuth();
 
+  const getFilterOverrideKey = (memberId: string) => `fam_tasks_filter_member_override_${memberId}`;
+  const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
+  const getActiveFilterMember = React.useCallback((defaultMemberId: string) => {
+    try {
+      const key = getFilterOverrideKey(defaultMemberId);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.value && typeof parsed.timestamp === 'number') {
+          if (Date.now() - parsed.timestamp < FIVE_MINUTES_MS) {
+            return parsed.value;
+          }
+        }
+      }
+    } catch (e) {}
+    return defaultMemberId;
+  }, []);
+
   // Default selected list is the first specific custom list (or 'general' if none), NOT 'all'
   const [selectedListId, setSelectedListId] = useState<string>(() => 
     customTaskLists.length > 0 ? customTaskLists[0].id : 'general'
   );
 
   const [filterMember, setFilterMemberState] = useState<string>(() => 
-    getUserPreferences(currentMember.id).tasksMemberFilter
+    getActiveFilterMember(currentMember.id)
   );
   const [filterStatus, setFilterStatusState] = useState<'all' | 'pending' | 'completed'>(() => 
     getUserPreferences(currentMember.id).tasksStatusFilter
@@ -42,10 +62,34 @@ export const TasksView: React.FC = () => {
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
 
-  // Defaults: assignedMemberId = '' (Cualquiera), frequency = 'Única'
+  useBodyScrollLock(showAddModal || deletingTaskId !== null);
+
   const [title, setTitle] = useState('');
   const [targetListId, setTargetListId] = useState<string>(selectedListId !== 'all' ? selectedListId : 'general');
-  const [assignedMemberId, setAssignedMemberId] = useState<string>('');
+  const [assignedMemberId, setAssignedMemberId] = useState<string>(currentMember.id);
+
+  // Sync assignedMemberId to currentMember.id and manage 5-minute timer on filterMember
+  useEffect(() => {
+    setAssignedMemberId(currentMember.id);
+    setFilterMemberState(getActiveFilterMember(currentMember.id));
+
+    const interval = setInterval(() => {
+      try {
+        const key = getFilterOverrideKey(currentMember.id);
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.timestamp && Date.now() - parsed.timestamp >= FIVE_MINUTES_MS) {
+            localStorage.removeItem(key);
+            setFilterMemberState(currentMember.id);
+          }
+        }
+      } catch (e) {}
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [currentMember.id, getActiveFilterMember]);
+
   const [dueDate, setDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [priority, setPriority] = useState<Priority>('Media');
   const [frequency, setFrequency] = useState<Frequency>('Única');
@@ -54,6 +98,17 @@ export const TasksView: React.FC = () => {
 
   const setFilterMember = (mId: string) => {
     setFilterMemberState(mId);
+    try {
+      const key = getFilterOverrideKey(currentMember.id);
+      if (mId === currentMember.id) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify({
+          value: mId,
+          timestamp: Date.now()
+        }));
+      }
+    } catch (e) {}
     saveUserPreferences(currentMember.id, { tasksMemberFilter: mId });
   };
   const setFilterStatus = (st: 'all' | 'pending' | 'completed') => {

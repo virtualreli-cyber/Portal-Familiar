@@ -13,6 +13,7 @@ import {
   RewardItem,
   GiftIdea,
   ActiveTab,
+  DashboardCardId,
   RewardRequest,
   CustomTaskList,
   AnniversaryItem,
@@ -23,6 +24,7 @@ import { INITIAL_REWARDS } from '../data/mockData';
 import { supabase, sbUpsert, sbDelete, sbFetch, sbGetConfig, sbSetConfig, loadLocalData, saveLocalData } from '../lib/supabase';
 import { subscribeRealtime, broadcastRealtime } from '../lib/realtimeSync';
 import { useAuth } from './AuthContext';
+import { getUserPreferences, saveUserPreferences } from '../lib/userPreferences';
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,16 @@ const DEFAULT_SECTION_VISIBILITY: Record<ActiveTab, boolean> = {
   dashboard: true, tasks: true, shopping: true, calendar: true,
   notes: true, meals: true, catholic: true, contacts: true,
   birthdays: true, finances: true, wedding: true, admin: true
+};
+
+export const DEFAULT_DASHBOARD_CARDS_VISIBILITY: Record<DashboardCardId, boolean> = {
+  welcome_card: true,
+  wedding_banner: true,
+  parent_approvals: true,
+  fridge_notes: true,
+  catholic_intentions: true,
+  birthdays_anniversaries: true,
+  summary_sections: true
 };
 
 const DEFAULT_MENU_ORDER: ActiveTab[] = [
@@ -40,7 +52,8 @@ const DEFAULT_MENU_ORDER: ActiveTab[] = [
 const DEFAULT_CATEGORIES = {
   tasks: ['Limpieza','Cocina','Estudios','Oración','Mascotas','General'],
   shopping: ['Frutas y Verduras','Lácteos y Frescos','Carnes y Pescados','Panadería y Cereales','Despensa y Bebidas','Limpieza y Hogar','Mascotas','Otros'],
-  events: ['Médico','Colegio','Misa/Liturgia','Ocio/Fiesta','Deporte','Gestiones','Hogar','Otro']
+  events: ['Médico','Colegio','Misa/Liturgia','Ocio/Fiesta','Deporte','Gestiones','Hogar','Otro'],
+  anniversaries: ['Boda', 'Santo', 'Bautizo', 'Comunión', 'Empresa/Trabajo', 'Otro']
 };
 
 // ─── Context Type ─────────────────────────────────────────────────────────────
@@ -69,6 +82,7 @@ interface FamilyContextType {
   weddingTasks: WeddingTask[];
   weddingNotes: WeddingNote[];
   sectionVisibility: Record<ActiveTab, boolean>;
+  dashboardCardsVisibility: Record<DashboardCardId, boolean>;
   customCategories: typeof DEFAULT_CATEGORIES;
   menuOrder: ActiveTab[];
 
@@ -93,10 +107,11 @@ interface FamilyContextType {
 
   reorderMenuSections: (newOrder: ActiveTab[]) => void;
   updateSectionVisibility: (tab: ActiveTab, visible: boolean) => void;
-  updateCategories: (type: 'tasks' | 'shopping' | 'events', newCategories: string[]) => void;
-  addCategory: (type: 'tasks' | 'shopping' | 'events', categoryName: string) => void;
-  deleteCategory: (type: 'tasks' | 'shopping' | 'events', categoryName: string) => void;
-  reorderCategories: (type: 'tasks' | 'shopping' | 'events', newOrderedCategories: string[]) => void;
+  updateDashboardCardVisibility: (cardId: DashboardCardId, visible: boolean) => void;
+  updateCategories: (type: 'tasks' | 'shopping' | 'events' | 'anniversaries', newCategories: string[]) => void;
+  addCategory: (type: 'tasks' | 'shopping' | 'events' | 'anniversaries', categoryName: string) => void;
+  deleteCategory: (type: 'tasks' | 'shopping' | 'events' | 'anniversaries', categoryName: string) => void;
+  reorderCategories: (type: 'tasks' | 'shopping' | 'events' | 'anniversaries', newOrderedCategories: string[]) => void;
 
   addCustomTaskList: (name: string, categories: string[]) => void;
   deleteCustomTaskList: (id: string) => void;
@@ -309,7 +324,7 @@ const fromWeddingNoteRow = (r: Record<string,unknown>): WeddingNote => ({
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { allMembers, updateMemberDetails } = useAuth();
+  const { currentMember, allMembers, updateMemberDetails } = useAuth();
 
   // ── State — All start empty; Supabase is the single source of truth ────────
   const [familyName, setFamilyNameState] = useState<string>('');
@@ -332,6 +347,7 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [weddingTasks, setWeddingTasks] = useState<WeddingTask[]>([]);
   const [weddingNotes, setWeddingNotes] = useState<WeddingNote[]>([]);
   const [sectionVisibility, setSectionVisibility] = useState<Record<ActiveTab, boolean>>(DEFAULT_SECTION_VISIBILITY);
+  const [dashboardCardsVisibility, setDashboardCardsVisibilityState] = useState<Record<DashboardCardId, boolean>>(DEFAULT_DASHBOARD_CARDS_VISIBILITY);
   const [customCategories, setCustomCategories] = useState(DEFAULT_CATEGORIES);
   const [menuOrder, setMenuOrderState] = useState<ActiveTab[]>(DEFAULT_MENU_ORDER);
   const [wifiSSID, setWifiSSID] = useState<string>('');
@@ -376,12 +392,13 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setWeddingNotes(wNoteRows.map(fromWeddingNoteRow));
 
       // App config
-      const [cfgFamName, cfgDark, cfgTheme, cfgCats, cfgVis, cfgMenuOrder, cfgWifiSSID, cfgWifiPass] = await Promise.all([
+      const [cfgFamName, cfgDark, cfgTheme, cfgCats, cfgVis, cfgDashVis, cfgMenuOrder, cfgWifiSSID, cfgWifiPass] = await Promise.all([
         sbGetConfig('fam_name'),
         sbGetConfig('fam_dark_mode'),
         sbGetConfig('fam_theme_color'),
         sbGetConfig('custom_categories'),
         sbGetConfig('section_visibility'),
+        sbGetConfig('dashboard_cards_visibility'),
         sbGetConfig('menu_order'),
         sbGetConfig('wifi_ssid'),
         sbGetConfig('wifi_pass'),
@@ -391,6 +408,7 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (cfgTheme) setThemeColorState(cfgTheme as string);
       if (cfgCats) setCustomCategories(cfgCats as typeof DEFAULT_CATEGORIES);
       if (cfgVis) setSectionVisibility(cfgVis as Record<ActiveTab, boolean>);
+      if (cfgDashVis) setDashboardCardsVisibilityState(cfgDashVis as Record<DashboardCardId, boolean>);
       if (cfgMenuOrder) setMenuOrderState(cfgMenuOrder as ActiveTab[]);
       if (cfgWifiSSID) setWifiSSID(cfgWifiSSID as string);
       if (cfgWifiPass) setWifiPass(cfgWifiPass as string);
@@ -635,6 +653,15 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // ── Dark Mode Sync ────────────────────────────────────────────────────────
   useEffect(() => {
+    if (currentMember?.id) {
+      const prefs = getUserPreferences(currentMember.id);
+      if (typeof prefs.darkMode === 'boolean') {
+        setDarkModeState(prefs.darkMode);
+      }
+    }
+  }, [currentMember?.id]);
+
+  useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     sbSetConfig('fam_dark_mode', darkMode);
   }, [darkMode]);
@@ -644,7 +671,15 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setFamilyNameState(name);
     sbSetConfig('fam_name', name);
   };
-  const toggleDarkMode = () => setDarkModeState(prev => !prev);
+  const toggleDarkMode = () => {
+    setDarkModeState(prev => {
+      const next = !prev;
+      if (currentMember?.id) {
+        saveUserPreferences(currentMember.id, { darkMode: next });
+      }
+      return next;
+    });
+  };
   const setThemeColor = (color: string) => {
     setThemeColorState(color);
     sbSetConfig('fam_theme_color', color);
@@ -666,27 +701,34 @@ export const FamilyProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return updated;
     });
   };
+  const updateDashboardCardVisibility = (cardId: DashboardCardId, visible: boolean) => {
+    setDashboardCardsVisibilityState(prev => {
+      const updated = { ...prev, [cardId]: visible };
+      sbSetConfig('dashboard_cards_visibility', updated);
+      return updated;
+    });
+  };
   const reorderMenuSections = (newOrder: ActiveTab[]) => {
     setMenuOrderState(newOrder);
     sbSetConfig('menu_order', newOrder);
   };
 
   // ── Categories ────────────────────────────────────────────────────────────
-  const updateCategories = (type: 'tasks'|'shopping'|'events', cats: string[]) => {
+  const updateCategories = (type: 'tasks'|'shopping'|'events'|'anniversaries', cats: string[]) => {
     setCustomCategories(prev => {
       const updated = { ...prev, [type]: cats };
       sbSetConfig('custom_categories', updated);
       return updated;
     });
   };
-  const addCategory = (type: 'tasks'|'shopping'|'events', name: string) => {
-    if (!name.trim() || customCategories[type].includes(name.trim())) return;
-    updateCategories(type, [...customCategories[type], name.trim()]);
+  const addCategory = (type: 'tasks'|'shopping'|'events'|'anniversaries', name: string) => {
+    if (!name.trim() || customCategories[type]?.includes(name.trim())) return;
+    updateCategories(type, [...(customCategories[type] || []), name.trim()]);
   };
-  const deleteCategory = (type: 'tasks'|'shopping'|'events', name: string) => {
-    updateCategories(type, customCategories[type].filter(c => c !== name));
+  const deleteCategory = (type: 'tasks'|'shopping'|'events'|'anniversaries', name: string) => {
+    updateCategories(type, (customCategories[type] || []).filter(c => c !== name));
   };
-  const reorderCategories = (type: 'tasks'|'shopping'|'events', ordered: string[]) => {
+  const reorderCategories = (type: 'tasks'|'shopping'|'events'|'anniversaries', ordered: string[]) => {
     updateCategories(type, ordered);
   };
 
@@ -1043,7 +1085,7 @@ const generateId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? c
         const newBdayItem: BirthdayItem = {
           id: birthdayId,
           name: targetMember?.name || targetAnn?.title || 'Persona/Celebración',
-          relationship: targetMember?.role || targetAnn?.type || 'Familia',
+          relationship: targetMember ? 'Cumpleaños' : (targetAnn?.type || 'Familia'),
           birthDate: targetMember?.birthDate || targetAnn?.date || '',
           avatar: targetMember?.avatar || '🎉',
           giftIdeas: [newIdea],
@@ -1253,14 +1295,14 @@ const generateId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? c
       stickyNotes, expenses, emergencyContacts, intentions,
       anniversaries, rewards, rewardRequests, customTaskLists,
       weddingTasks, weddingNotes,
-      sectionVisibility, customCategories, menuOrder,
+      sectionVisibility, dashboardCardsVisibility, customCategories, menuOrder,
       wifiSSID, wifiPass, updateWifi,
       dataLoaded,
       addAnniversary, deleteAnniversary,
       addWeddingTask, toggleWeddingTask, editWeddingTask, deleteWeddingTask,
       addWeddingNote, editWeddingNote, deleteWeddingNote,
       reorderMenuSections,
-      updateSectionVisibility,
+      updateSectionVisibility, updateDashboardCardVisibility,
       updateCategories, addCategory, deleteCategory, reorderCategories,
       addCustomTaskList, deleteCustomTaskList,
       addEvent, editEvent, deleteEvent,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ActiveTab } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { 
   Home, 
   Calendar, 
@@ -25,6 +26,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
   const { permissions, isAdmin } = useAuth();
   const [showMoreDrawer, setShowMoreDrawer] = useState(false);
+
+  useBodyScrollLock(showMoreDrawer);
 
   const primaryTabs: { id: ActiveTab; label: string; icon: React.ReactNode; show: boolean }[] = [
     { id: 'dashboard', label: 'Inicio', icon: <Home className="w-5 h-5" />, show: true },

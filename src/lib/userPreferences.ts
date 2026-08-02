@@ -4,6 +4,7 @@
  */
 
 export interface UserPreferences {
+  darkMode?: boolean;
   calendarViewMode: 'month' | 'agenda';
   calendarCategory: string;
   tasksStatusFilter: 'all' | 'pending' | 'completed';

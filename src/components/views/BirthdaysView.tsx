@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { GiftIdea } from '../../types';
+import { getUpcomingYearsInfo } from '../../lib/dateUtils';
 import { 
   Cake, 
   Plus, 
@@ -10,7 +12,8 @@ import {
   Edit3,
   X, 
   Sparkles,
-  Calendar
+  Calendar,
+  Sparkle
 } from 'lucide-react';
 
 export const BirthdaysView: React.FC = () => {
@@ -19,6 +22,8 @@ export const BirthdaysView: React.FC = () => {
 
   const [activeGiftModalBdayId, setActiveGiftModalBdayId] = useState<string | null>(null);
   const [editingGift, setEditingGift] = useState<{ bdayId: string; gift: GiftIdea } | null>(null);
+
+  useBodyScrollLock(activeGiftModalBdayId !== null);
 
   // Gift idea form
   const [giftTitle, setGiftTitle] = useState('');
@@ -34,6 +39,8 @@ export const BirthdaysView: React.FC = () => {
       dateStr: string;
       avatar: string;
       type: 'member' | 'anniversary' | 'custom';
+      anniversaryType?: string;
+      memberBirthDate?: string;
       giftIdeas: GiftIdea[];
     }> = [];
 
@@ -44,10 +51,11 @@ export const BirthdaysView: React.FC = () => {
         list.push({
           id: m.id,
           name: m.name,
-          relationship: `Miembro (${m.role})`,
+          relationship: 'Cumpleaños',
           dateStr: m.birthDate,
           avatar: m.avatar || '👤',
           type: 'member',
+          memberBirthDate: m.birthDate,
           giftIdeas: bdayEntry?.giftIdeas || []
         });
       }
@@ -56,6 +64,10 @@ export const BirthdaysView: React.FC = () => {
     // 2. Custom Anniversaries from Settings
     anniversaries.forEach(a => {
       const bdayEntry = birthdays.find(b => b.id === a.id);
+      const linkedMember = a.memberIds && a.memberIds.length > 0 
+        ? allMembers.find(m => m.id === a.memberIds[0])
+        : undefined;
+
       list.push({
         id: a.id,
         name: a.title,
@@ -63,6 +75,8 @@ export const BirthdaysView: React.FC = () => {
         dateStr: a.date,
         avatar: a.type === 'Boda' ? '💍' : a.type === 'Santo' ? '😇' : '❤️',
         type: 'anniversary',
+        anniversaryType: a.type,
+        memberBirthDate: linkedMember?.birthDate,
         giftIdeas: bdayEntry?.giftIdeas || []
       });
     });
@@ -78,6 +92,7 @@ export const BirthdaysView: React.FC = () => {
           dateStr: b.birthDate,
           avatar: b.avatar || '🎂',
           type: 'custom',
+          memberBirthDate: b.birthDate,
           giftIdeas: b.giftIdeas || []
         });
       }
@@ -178,6 +193,7 @@ export const BirthdaysView: React.FC = () => {
         ) : (
           combinedItems.map(item => {
             const totalGiftEst = item.giftIdeas.reduce((acc, g) => acc + (g.estimatedCost || 0), 0);
+            const yearsInfo = getUpcomingYearsInfo(item.dateStr, item.anniversaryType, item.memberBirthDate);
 
             return (
               <div key={item.id} className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs space-y-4 flex flex-col justify-between">
@@ -186,7 +202,7 @@ export const BirthdaysView: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <span className="text-3xl">{item.avatar}</span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-bold text-slate-900 text-base">{item.name}</h3>
                           <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                             item.type === 'member'
@@ -198,10 +214,18 @@ export const BirthdaysView: React.FC = () => {
                             {item.relationship}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Fecha: {item.dateStr || 'No especificada'}</span>
-                        </p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <p className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-rose-500" />
+                            <span>Fecha: {item.dateStr || 'No especificada'}</span>
+                          </p>
+                          {yearsInfo && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-300 text-[11px] font-extrabold shadow-2xs">
+                              <Sparkle className="w-3 h-3 text-amber-500 fill-current" />
+                              <span>{yearsInfo.labelText}</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

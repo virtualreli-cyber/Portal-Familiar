@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { X, KeyRound, UserCheck } from 'lucide-react';
 
 interface LoginModalProps {
@@ -13,6 +14,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const [pinInput, setPinInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useBodyScrollLock(isOpen);
 
   if (!isOpen) return null;
 
@@ -97,10 +100,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                       </div>
                       <div>
                         <p className="font-bold text-slate-800 text-sm">{member.name}</p>
-                        <p className="text-xs text-slate-500 font-semibold">
-                          {member.role}
-                          {isCurrent && <span className="ml-1.5 text-indigo-600">(activo)</span>}
-                        </p>
+                        {isCurrent && (
+                          <p className="text-xs text-indigo-600 font-semibold">(activo)</p>
+                        )}
                       </div>
                     </div>
                     {isSelected && <UserCheck className="w-5 h-5 text-indigo-600" />}

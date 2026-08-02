@@ -236,3 +236,12 @@ export type ActiveTab =
   | 'finances'
   | 'wedding'
   | 'admin';
+
+export type DashboardCardId =
+  | 'welcome_card'
+  | 'wedding_banner'
+  | 'parent_approvals'
+  | 'fridge_notes'
+  | 'catholic_intentions'
+  | 'birthdays_anniversaries'
+  | 'summary_sections';

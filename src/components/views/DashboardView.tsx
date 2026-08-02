@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
 import { ActiveTab } from '../../types';
+import { getUpcomingYearsInfo } from '../../lib/dateUtils';
 import { 
   Calendar, 
   CheckSquare, 
@@ -15,7 +16,8 @@ import {
   Cake,
   PhoneCall,
   ChevronRight,
-  Pin
+  Pin,
+  Heart
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -31,6 +33,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     intentions,
     anniversaries,
     stickyNotes,
+    weddingTasks,
+    weddingNotes,
+    dashboardCardsVisibility,
     approveTaskValidation,
     rejectTaskValidation,
     approveRewardRequest,
@@ -67,6 +72,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     member?: (typeof allMembers)[0];
     dateStr: string;
     daysRemaining: number;
+    yearsLabel?: string;
   }> = [];
 
   // ALL Family Members Birthdays
@@ -83,6 +89,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     }
     const diffTime = targetDate.getTime() - now.getTime();
     const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const info = getUpcomingYearsInfo(member.birthDate, undefined, member.birthDate);
 
     upcomingEventsList.push({
       id: `bday_${member.id}`,
@@ -90,7 +97,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
       type: 'birthday',
       member,
       dateStr: `${day}/${month + 1}`,
-      daysRemaining
+      daysRemaining,
+      yearsLabel: info ? info.labelText : undefined
     });
   });
 
@@ -109,84 +117,153 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     const diffTime = targetDate.getTime() - now.getTime();
     const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
+    const linkedMember = ann.memberIds && ann.memberIds.length > 0
+      ? allMembers.find(m => m.id === ann.memberIds[0])
+      : undefined;
+    const info = getUpcomingYearsInfo(ann.date, ann.type, linkedMember?.birthDate);
+
     upcomingEventsList.push({
       id: ann.id,
       title: ann.title,
       type: 'anniversary',
       dateStr: `${day}/${month + 1}`,
-      daysRemaining
+      daysRemaining,
+      yearsLabel: info ? info.labelText : undefined
     });
   });
 
   // Sort upcoming events by days remaining
   upcomingEventsList.sort((a, b) => a.daysRemaining - b.daysRemaining);
 
+  // Sort sticky notes so pinned ones appear first (leftmost)
+  const sortedStickyNotes = [...stickyNotes].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
+  // Countdown timer state to Wedding Date (August 15th at 18:30)
+  const [weddingTimeLeft, setWeddingTimeLeft] = useState<{ days: number; hours: number; minutes: number; seconds: number } | null>(null);
+
+  useEffect(() => {
+    const calculateCountdown = () => {
+      const today = new Date();
+      const yr = today.getFullYear();
+      let target = new Date(yr, 7, 15, 18, 30, 0); // 15 de agosto a las 18:30
+      if (today.getTime() > target.getTime()) {
+        target = new Date(yr + 1, 7, 15, 18, 30, 0);
+      }
+      const diff = target.getTime() - today.getTime();
+      if (diff <= 0) {
+        setWeddingTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setWeddingTimeLeft({ days, hours, minutes, seconds });
+    };
+
+    calculateCountdown();
+    const interval = setInterval(calculateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="space-y-6 pb-12 overflow-x-hidden">
-      {/* Refactored Hero Welcome Card */}
-      <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white rounded-3xl p-6 sm:p-7 shadow-xl relative overflow-hidden">
-        <div className="relative z-10 space-y-3">
-          <h2 className="text-2xl sm:text-4xl font-extrabold text-white flex items-center gap-2">
-            <span>Hola, {currentMember.name}</span>
-            <span className="text-3xl sm:text-4xl">{currentMember.avatar}</span>
-          </h2>
+      {/* 1. HERO WELCOME CARD */}
+      {dashboardCardsVisibility.welcome_card !== false && (
+        <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white rounded-3xl p-6 sm:p-7 shadow-xl relative overflow-hidden">
+          <div className="relative z-10 space-y-3">
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-white flex items-center gap-2">
+              <span>Hola, {currentMember.name}</span>
+              <span className="text-3xl sm:text-4xl">{currentMember.avatar}</span>
+            </h2>
 
-          {/* Member's Involvement Badges */}
-          <div className="flex items-center gap-2.5 flex-wrap pt-1">
-            <button
-              onClick={() => setActiveTab('calendar')}
-              className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs rounded-2xl flex items-center gap-1.5 shadow-xs transition active-touch"
-              title="Ir al Calendario"
-            >
-              <Calendar className="w-4 h-4 text-slate-900" />
-              <span>{myTodayEvents.length} Eventos hoy</span>
-            </button>
+            {/* Member's Involvement Badges */}
+            <div className="flex items-center gap-2 pt-1 max-w-full">
+              <button
+                onClick={() => setActiveTab('calendar')}
+                className="px-2.5 sm:px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs rounded-2xl flex items-center gap-1.5 shadow-xs transition active-touch whitespace-nowrap"
+                title="Ir al Calendario"
+              >
+                <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-900 shrink-0" />
+                <span>{myTodayEvents.length} Eventos hoy</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('tasks')}
-              className="px-3.5 py-1.5 bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-extrabold text-xs rounded-2xl flex items-center gap-1.5 shadow-xs transition active-touch"
-              title="Ir a Mis Tareas"
-            >
-              <CheckSquare className="w-4 h-4 text-slate-900" />
-              <span>{myPendingTasks.length} Mis tareas pendientes</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* MEMBER'S APPROVED REWARD NOTIFICATION */}
-      {myApprovedRewards.length > 0 && (
-        <div className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-5 rounded-3xl shadow-lg space-y-3 animate-fade-in">
-          <div className="flex items-center gap-2 font-extrabold text-sm sm:text-base border-b border-white/20 pb-2">
-            <Sparkles className="w-5 h-5 text-amber-300 animate-spin" />
-            <span>¡Tienes Recompensas Aprobadas por los Padres para Disfrutar!</span>
-          </div>
-
-          <div className="space-y-2">
-            {myApprovedRewards.map(req => (
-              <div key={req.id} className="bg-white/10 backdrop-blur-xs p-3.5 rounded-2xl border border-white/20 flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-extrabold text-sm text-white flex items-center gap-1.5">
-                    <Gift className="w-4 h-4 text-amber-300" /> {req.rewardTitle}
-                  </p>
-                  <p className="text-[11px] text-emerald-100">
-                    Aprobado por tus padres. ¡Disfrútalo cuando quieras!
-                  </p>
-                </div>
-                <button
-                  onClick={() => enjoyReward(req.id)}
-                  className="px-4 py-2 bg-amber-400 text-slate-900 font-extrabold text-xs rounded-xl shadow-md active-touch shrink-0"
-                >
-                  ¡Marcar como Disfrutado! ✓
-                </button>
-              </div>
-            ))}
+              <button
+                onClick={() => setActiveTab('tasks')}
+                className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-extrabold text-xs rounded-2xl flex items-center gap-1.5 shadow-xs transition active-touch whitespace-nowrap"
+                title="Ir a Mis Tareas"
+              >
+                <CheckSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-900 shrink-0" />
+                <span>{myPendingTasks.length} pendientes</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* PARENTS NOTIFICATION CENTER */}
-      {isAdmin && (pendingTaskValidations.length > 0 || pendingRewardValidations.length > 0) && (
+      {/* 2. WEDDING COUNTDOWN BANNER CARD (Spans 2 columns width like birthdays) */}
+      {dashboardCardsVisibility.wedding_banner !== false && (
+        <div className="bg-gradient-to-r from-rose-500 via-pink-600 to-purple-600 text-white rounded-3xl p-3.5 sm:p-4 shadow-md border border-rose-300 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-base bg-white/20 p-1.5 rounded-xl backdrop-blur-xs leading-none">💒</span>
+              <span className="font-extrabold text-xs sm:text-sm text-white tracking-tight flex items-center gap-1">
+                Cuenta Atrás <Heart className="w-3 h-3 fill-current text-pink-200" />
+              </span>
+            </div>
+            
+            <button
+              onClick={() => setActiveTab('wedding')}
+              className="px-2.5 py-1 bg-white text-rose-700 hover:bg-rose-50 text-[11px] font-extrabold rounded-xl shadow-2xs transition active-touch shrink-0 flex items-center gap-1"
+            >
+              <Heart className="w-3 h-3 fill-current text-rose-500" />
+              <span>Enlace del año</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Countdown Display */}
+          <div className="grid grid-cols-4 gap-1.5 text-center max-w-md mx-auto">
+            <div className="bg-white/15 backdrop-blur-xs rounded-xl py-1.5 px-1 border border-white/20">
+              <span className="block font-black text-lg sm:text-xl text-white leading-tight">
+                {weddingTimeLeft ? weddingTimeLeft.days : '--'}
+              </span>
+              <span className="text-[9px] font-bold text-rose-100 uppercase tracking-wider block -mt-0.5">Días</span>
+            </div>
+            <div className="bg-white/15 backdrop-blur-xs rounded-xl py-1.5 px-1 border border-white/20">
+              <span className="block font-black text-lg sm:text-xl text-white leading-tight">
+                {weddingTimeLeft ? String(weddingTimeLeft.hours).padStart(2, '0') : '--'}
+              </span>
+              <span className="text-[9px] font-bold text-rose-100 uppercase tracking-wider block -mt-0.5">Horas</span>
+            </div>
+            <div className="bg-white/15 backdrop-blur-xs rounded-xl py-1.5 px-1 border border-white/20">
+              <span className="block font-black text-lg sm:text-xl text-white leading-tight">
+                {weddingTimeLeft ? String(weddingTimeLeft.minutes).padStart(2, '0') : '--'}
+              </span>
+              <span className="text-[9px] font-bold text-rose-100 uppercase tracking-wider block -mt-0.5">Min</span>
+            </div>
+            <div className="bg-white/15 backdrop-blur-xs rounded-xl py-1.5 px-1 border border-white/20">
+              <span className="block font-black text-lg sm:text-xl text-white leading-tight">
+                {weddingTimeLeft ? String(weddingTimeLeft.seconds).padStart(2, '0') : '--'}
+              </span>
+              <span className="text-[9px] font-bold text-rose-100 uppercase tracking-wider block -mt-0.5">Seg</span>
+            </div>
+          </div>
+
+          {/* Quick stats row */}
+          <div className="flex items-center justify-between text-[11px] text-rose-100 pt-1.5 border-t border-white/15">
+            <span className="flex items-center gap-1">
+              💍 Tareas: <strong className="text-white ml-0.5">{weddingTasks.filter(t => !t.completed).length}</strong>
+            </span>
+            <span className="flex items-center gap-1">
+              📝 Notas: <strong className="text-white ml-0.5">{weddingNotes.length}</strong>
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 3. PARENTS NOTIFICATION CENTER */}
+      {isAdmin && pendingTaskValidations.length > 0 && dashboardCardsVisibility.parent_approvals !== false && (
         <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white p-5 sm:p-6 rounded-3xl shadow-xl space-y-4 animate-fade-in">
           <div className="flex items-center justify-between border-b border-white/20 pb-3">
             <div className="flex items-center gap-2 font-extrabold text-sm sm:text-base">
@@ -194,73 +271,94 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
               <span>Avisos Pendientes de Validación por los Padres</span>
             </div>
             <span className="bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold">
-              {pendingTaskValidations.length + pendingRewardValidations.length} Solicitudes
+              {pendingTaskValidations.length} Tareas
             </span>
           </div>
 
           {/* Pending Task Validations */}
-          {pendingTaskValidations.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-amber-100 uppercase tracking-wider">Tareas Avisadas por Hijos:</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {pendingTaskValidations.map(t => {
-                  const reqMember = allMembers.find(m => m.id === t.requestedByMemberId || m.id === t.assignedMemberId);
-                  return (
-                    <div key={t.id} className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/20 flex items-center justify-between gap-2">
-                      <div className="text-xs">
-                        <p className="font-bold text-white truncate">{t.title}</p>
-                        <p className="text-[10px] text-amber-100">
-                          Aviso por: <span className="font-bold">{reqMember?.name || 'Miembro'}</span>
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => approveTaskValidation(t.id)}
-                          className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg flex items-center gap-1 shadow-xs active-touch"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Aprobar
-                        </button>
-                        <button
-                          onClick={() => rejectTaskValidation(t.id)}
-                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-lg flex items-center gap-1 active-touch"
-                        >
-                          <XCircle className="w-3.5 h-3.5" /> Rechazar
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Pending Reward Validations */}
-          {pendingRewardValidations.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-white/20">
-              <p className="text-xs font-bold text-amber-100 uppercase tracking-wider">Recompensas Solicitadas:</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {pendingRewardValidations.map(r => (
-                  <div key={r.id} className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/20 flex items-center justify-between gap-2">
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-amber-100 uppercase tracking-wider">Tareas Avisadas por Hijos:</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {pendingTaskValidations.map(t => {
+                const reqMember = allMembers.find(m => m.id === t.requestedByMemberId || m.id === t.assignedMemberId);
+                return (
+                  <div key={t.id} className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/20 flex items-center justify-between gap-2">
                     <div className="text-xs">
-                      <p className="font-bold text-white truncate">{r.rewardTitle}</p>
+                      <p className="font-bold text-white truncate">{t.title}</p>
                       <p className="text-[10px] text-amber-100">
-                        Por: <span className="font-bold">{r.memberName}</span>
+                        Aviso por: <span className="font-bold">{reqMember?.name || 'Miembro'}</span>
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
-                        onClick={() => approveRewardRequest(r.id)}
+                        onClick={() => approveTaskValidation(t.id)}
                         className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg flex items-center gap-1 shadow-xs active-touch"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Validar
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Aprobar
                       </button>
                       <button
-                        onClick={() => rejectRewardRequest(r.id)}
+                        onClick={() => rejectTaskValidation(t.id)}
                         className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-lg flex items-center gap-1 active-touch"
                       >
                         <XCircle className="w-3.5 h-3.5" /> Rechazar
                       </button>
                     </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. FRIDGE NOTES SECTION */}
+      {dashboardCardsVisibility.fridge_notes !== false && (
+        <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-amber-100 text-amber-700">
+                <Pin className="w-5 h-5" />
+              </div>
+              <h3 className="font-bold text-slate-900 text-base">Notas de la Nevera</h3>
+            </div>
+            <button
+              onClick={() => setActiveTab('notes')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 active-touch"
+            >
+              Ver Nevera <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Compact Horizontal Scrollable Row for Sticky Notes */}
+          {stickyNotes.length === 0 ? (
+            <p className="text-xs text-slate-400 italic text-center py-2">No hay notas pegadas en la nevera.</p>
+          ) : (
+            <div className="relative">
+              <div className="flex items-stretch gap-3 overflow-x-auto pb-2 no-scrollbar horizontal-scroll-hint">
+                {sortedStickyNotes.map(note => (
+                  <div
+                    key={note.id}
+                    onClick={() => setActiveTab('notes')}
+                    className={`p-3 rounded-2xl border shadow-xs transition active-touch cursor-pointer min-w-[170px] sm:min-w-[190px] max-w-[210px] shrink-0 flex flex-col justify-between space-y-1.5 ${
+                      note.color === 'yellow' ? 'bg-amber-100 border-amber-300 text-amber-950' :
+                      note.color === 'pink' ? 'bg-pink-100 border-pink-300 text-pink-950' :
+                      note.color === 'blue' ? 'bg-blue-100 border-blue-300 text-blue-950' :
+                      note.color === 'purple' ? 'bg-purple-100 border-purple-300 text-purple-950' :
+                      'bg-emerald-100 border-emerald-300 text-emerald-950'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <h4 className="font-extrabold text-xs leading-tight line-clamp-1">{note.title}</h4>
+                        {note.pinned && <Pin className="w-3 h-3 text-rose-600 shrink-0" />}
+                      </div>
+                      <p className="text-[11px] leading-snug line-clamp-3 opacity-90">{note.content}</p>
+                    </div>
+                    {note.author && (
+                      <p className="text-[9px] font-bold opacity-75 text-right pt-1 border-t border-black/10">
+                        — {note.author}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -269,62 +367,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
       )}
 
-      {/* FRIDGE NOTES SECTION (Reemplaza el Menú Semanal en Inicio - Request 9) */}
-      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-amber-100 text-amber-700">
-              <Pin className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-slate-900 text-base">Notas de la Nevera</h3>
-          </div>
-          <button
-            onClick={() => setActiveTab('notes')}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 active-touch"
-          >
-            Ver Nevera <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Compact Horizontal Scrollable Row for Sticky Notes (Request 9 & 10) */}
-        {stickyNotes.length === 0 ? (
-          <p className="text-xs text-slate-400 italic text-center py-2">No hay notas pegadas en la nevera.</p>
-        ) : (
-          <div className="relative">
-            <div className="flex items-stretch gap-3 overflow-x-auto pb-2 no-scrollbar horizontal-scroll-hint">
-              {stickyNotes.map(note => (
-                <div
-                  key={note.id}
-                  onClick={() => setActiveTab('notes')}
-                  className={`p-3 rounded-2xl border shadow-xs transition active-touch cursor-pointer min-w-[170px] sm:min-w-[190px] max-w-[210px] shrink-0 flex flex-col justify-between space-y-1.5 ${
-                    note.color === 'yellow' ? 'bg-amber-100 border-amber-300 text-amber-950' :
-                    note.color === 'pink' ? 'bg-pink-100 border-pink-300 text-pink-950' :
-                    note.color === 'blue' ? 'bg-blue-100 border-blue-300 text-blue-950' :
-                    note.color === 'purple' ? 'bg-purple-100 border-purple-300 text-purple-950' :
-                    'bg-emerald-100 border-emerald-300 text-emerald-950'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-1">
-                      <h4 className="font-extrabold text-xs leading-tight line-clamp-1">{note.title}</h4>
-                      {note.pinned && <Pin className="w-3 h-3 text-rose-600 shrink-0" />}
-                    </div>
-                    <p className="text-[11px] leading-snug line-clamp-3 opacity-90">{note.content}</p>
-                  </div>
-                  {note.author && (
-                    <p className="text-[9px] font-bold opacity-75 text-right pt-1 border-t border-black/10">
-                      — {note.author}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* CATHOLIC PRAYER INTENTIONS BANNER */}
-      {activeIntentions.length > 0 && (
+      {/* 5. CATHOLIC PRAYER INTENTIONS BANNER */}
+      {activeIntentions.length > 0 && dashboardCardsVisibility.catholic_intentions !== false && (
         <div className="bg-gradient-to-r from-purple-800 to-indigo-900 text-white p-5 rounded-3xl shadow-md space-y-3">
           <div className="flex items-center justify-between border-b border-purple-400/30 pb-2">
             <div className="flex items-center gap-2 font-extrabold text-sm">
@@ -352,55 +396,63 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
       )}
 
-      {/* UPCOMING BIRTHDAYS & ANNIVERSARIES */}
-      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-pink-100 text-pink-600">
-              <Cake className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-slate-900 text-base">Próximos Cumpleaños y Aniversarios</h3>
-          </div>
-          <button
-            onClick={() => setActiveTab('birthdays')}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
-          >
-            Ver Todos <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Horizontal Scroll Bar */}
-        <div className="flex items-center gap-3 overflow-x-auto pb-2 no-scrollbar horizontal-scroll-hint">
-          {upcomingEventsList.map(item => {
-            const isToday = item.daysRemaining === 0;
-            const daysLabel = isToday ? '¡Hoy!' : item.daysRemaining === 1 ? 'Mañana' : `En ${item.daysRemaining} d.`;
-
-            return (
-              <div
-                key={item.id}
-                className={`p-3.5 rounded-2xl border flex flex-col justify-between space-y-2 shadow-2xs min-w-[140px] max-w-[160px] shrink-0 ${
-                  item.member?.color || 'bg-slate-700 text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-xl">{item.member?.avatar || '🎉'}</span>
-                  <span className="px-2 py-0.5 rounded-full bg-white/20 text-[9px] font-extrabold uppercase text-white shrink-0">
-                    {daysLabel}
-                  </span>
-                </div>
-
-                <div>
-                  <h4 className="font-extrabold text-xs text-white leading-tight truncate">{item.title}</h4>
-                  <p className="text-[10px] text-white/80 font-medium">📅 {item.dateStr}</p>
-                </div>
+      {/* 6. UPCOMING BIRTHDAYS & ANNIVERSARIES */}
+      {dashboardCardsVisibility.birthdays_anniversaries !== false && (
+        <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-pink-100 text-pink-600">
+                <Cake className="w-5 h-5" />
               </div>
-            );
-          })}
-        </div>
-      </div>
+              <h3 className="font-bold text-slate-900 text-base">Próximos Cumpleaños y Aniversarios</h3>
+            </div>
+            <button
+              onClick={() => setActiveTab('birthdays')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+            >
+              Ver Todos <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
 
-      {/* DASHBOARD SECTION SUMMARY CARDS */}
-      <div className="space-y-3">
+          {/* Horizontal Scroll Bar */}
+          <div className="flex items-center gap-3 overflow-x-auto pb-2 no-scrollbar horizontal-scroll-hint">
+            {upcomingEventsList.map(item => {
+              const isToday = item.daysRemaining === 0;
+              const daysLabel = isToday ? '¡Hoy!' : item.daysRemaining === 1 ? 'Mañana' : `En ${item.daysRemaining} d.`;
+
+              return (
+                <div
+                  key={item.id}
+                  className={`p-3.5 rounded-2xl border flex flex-col justify-between space-y-2 shadow-2xs min-w-[140px] max-w-[160px] shrink-0 ${
+                    item.member?.color || 'bg-slate-700 text-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xl">{item.member?.avatar || '🎉'}</span>
+                    <span className="px-2 py-0.5 rounded-full bg-white/20 text-[9px] font-extrabold uppercase text-white shrink-0">
+                      {daysLabel}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h4 className="font-extrabold text-xs text-white leading-tight truncate">{item.title}</h4>
+                    <p className="text-[10px] text-white/90 font-medium">📅 {item.dateStr}</p>
+                    {item.yearsLabel && (
+                      <p className="text-[9px] font-extrabold text-amber-200 mt-0.5 truncate">
+                        ✨ {item.yearsLabel}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 7. DASHBOARD SECTION SUMMARY CARDS */}
+      {dashboardCardsVisibility.summary_sections !== false && (
+        <div className="space-y-3">
         <h3 className="font-extrabold text-slate-900 text-base">Secciones Principales</h3>
 
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
@@ -414,7 +466,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                 <CheckSquare className="w-5 h-5" />
               </div>
               <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-extrabold text-[10px] rounded-full">
-                {myPendingTasks.length} mis pendientes
+                {myPendingTasks.length} pendientes
               </span>
             </div>
             <div>
@@ -479,6 +531,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

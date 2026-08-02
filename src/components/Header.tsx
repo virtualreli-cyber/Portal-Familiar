@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useFamily } from '../context/FamilyContext';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { ActiveTab } from '../types';
 import { LoginModal } from './LoginModal';
 import { 
@@ -15,7 +16,6 @@ import {
   StickyNote, 
   PhoneCall, 
   Settings, 
-  Award, 
   Users, 
   ChevronRight,
   ChevronLeft,
@@ -32,7 +32,7 @@ interface HeaderProps {
 
 const TAB_INFO: Record<ActiveTab, { title: string; icon: string }> = {
   dashboard: { title: 'Inicio', icon: '🏠' },
-  tasks: { title: 'Tareas & Recompensas', icon: '✅' },
+  tasks: { title: 'Tareas del Hogar', icon: '✅' },
   shopping: { title: 'Lista de la Compra', icon: '🛒' },
   calendar: { title: 'Calendario Familiar', icon: '📅' },
   notes: { title: 'Notas de Nevera', icon: '📌' },
@@ -52,6 +52,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const [showDrawer, setShowDrawer] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [tabHistory, setTabHistory] = useState<ActiveTab[]>(['dashboard']);
+
+  useBodyScrollLock(showDrawer || showLoginModal);
 
   const totalPendingTasksCount = tasks.filter(t => !t.completed).length;
   const urgentTasksCount = tasks.filter(t => !t.completed && t.priority === 'Alta').length;
@@ -201,14 +203,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             </button>
           </div>
 
-          {/* RIGHT: Points + Profile avatar */}
+          {/* RIGHT: Profile avatar */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Points pill */}
-            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-2 sm:px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 shrink-0">
-              <Award className="w-3.5 h-3.5 text-amber-600" />
-              <span>{currentMember.points} pts</span>
-            </div>
-
             {/* Profile Avatar → opens switch modal */}
             <button
               onClick={() => setShowLoginModal(true)}
@@ -271,7 +267,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               </div>
               <div>
                 <p className="font-bold text-xs text-slate-900">{currentMember.name}</p>
-                <p className="text-[10px] text-slate-500 font-semibold">{currentRole} • {currentMember.points} pts</p>
+                <p className="text-[10px] text-slate-500 font-semibold">{currentRole}</p>
               </div>
             </div>
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useFamily } from '../../context/FamilyContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { FamilyMember, ActiveTab, FamilyRole, RolePermissions, AnniversaryItem } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 import { AnniversaryModal } from '../AnniversaryModal';
@@ -27,7 +28,8 @@ import {
   Sun,
   Moon,
   GripVertical,
-  Heart
+  Heart,
+  LayoutGrid
 } from 'lucide-react';
 
 const AVATAR_GROUPS = [
@@ -62,6 +64,8 @@ export const AdminSettingsView: React.FC = () => {
     setThemeColor,
     sectionVisibility, 
     updateSectionVisibility, 
+    dashboardCardsVisibility,
+    updateDashboardCardVisibility,
     customCategories, 
     addCategory,
     deleteCategory,
@@ -92,10 +96,10 @@ export const AdminSettingsView: React.FC = () => {
   const togglePinVisibility = (id: string) => setVisiblePins(prev => ({ ...prev, [id]: !prev[id] }));
 
   // Deletion confirmation modal for categories / custom lists
-  const [deletingCatInfo, setDeletingCatInfo] = useState<{ type: 'tasks' | 'shopping' | 'events' | 'list'; name: string } | null>(null);
+  const [deletingCatInfo, setDeletingCatInfo] = useState<{ type: 'tasks' | 'shopping' | 'events' | 'anniversaries' | 'list'; name: string } | null>(null);
 
   // Drag and drop category state
-  const [dragItem, setDragItem] = useState<{ type: 'tasks' | 'shopping' | 'events'; index: number } | null>(null);
+  const [dragItem, setDragItem] = useState<{ type: 'tasks' | 'shopping' | 'events' | 'anniversaries'; index: number } | null>(null);
 
   // Member editing modal
   const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
@@ -125,10 +129,13 @@ export const AdminSettingsView: React.FC = () => {
   const [newCatTask, setNewCatTask] = useState('');
   const [newCatShopping, setNewCatShopping] = useState('');
   const [newCatEvent, setNewCatEvent] = useState('');
+  const [newCatAnniversary, setNewCatAnniversary] = useState('');
 
   // Deletion confirmation
   const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
+
+  useBodyScrollLock(showMemberModal || showContactModal || showAnniversaryModal || deletingMemberId !== null || deletingContactId !== null || deletingCatInfo !== null);
 
   if (!isAdmin) {
     return (
@@ -336,7 +343,9 @@ export const AdminSettingsView: React.FC = () => {
                       </div>
                       <div>
                         <h4 className="font-bold text-sm text-slate-900">{m.name}</h4>
-                        <p className="text-xs text-slate-500 font-semibold">{m.role} • {m.age || '?'} años</p>
+                        <p className="text-xs text-slate-500 font-semibold">
+                          {m.birthDate ? `${calculateAge(m.birthDate)} años` : (m.age ? `${m.age} años` : '? años')}
+                        </p>
                       </div>
                     </div>
 
@@ -445,7 +454,6 @@ export const AdminSettingsView: React.FC = () => {
                         </div>
                         <div>
                           <h4 className="font-extrabold text-xs text-slate-900">{member.name}</h4>
-                          <span className="text-[10px] font-bold text-indigo-700">{member.role}</span>
                         </div>
                       </div>
 
@@ -473,12 +481,11 @@ export const AdminSettingsView: React.FC = () => {
                       {[
                         { key: 'canManageFinances', label: 'Gastos y Facturas' },
                         { key: 'canManageUsers', label: 'Gestión Usuarios' },
-                        { key: 'canManageTasks', label: 'Tareas y Puntos' },
+                        { key: 'canManageTasks', label: 'Tareas' },
                         { key: 'canManageCalendar', label: 'Calendario' },
                         { key: 'canManageShopping', label: 'Lista Compra' },
                         { key: 'canManageMeals', label: 'Menú Semanal' },
-                        { key: 'canManageCatholic', label: 'Rincón Católico' },
-                        { key: 'canRedeemRewards', label: 'Recompensas' }
+                        { key: 'canManageCatholic', label: 'Rincón Católico' }
                       ].map(perm => {
                         const isChecked = memberPerms[perm.key as keyof RolePermissions];
                         return (
@@ -524,7 +531,7 @@ export const AdminSettingsView: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {[
               { id: 'dashboard' as ActiveTab, label: 'Inicio Overview', icon: '🏠' },
-              { id: 'tasks' as ActiveTab, label: 'Tareas & Recompensas', icon: '✅' },
+              { id: 'tasks' as ActiveTab, label: 'Tareas', icon: '✅' },
               { id: 'shopping' as ActiveTab, label: 'Lista de la Compra', icon: '🛒' },
               { id: 'calendar' as ActiveTab, label: 'Calendario Familiar', icon: '📅' },
               { id: 'notes' as ActiveTab, label: 'Notas de Nevera', icon: '📌' },
@@ -560,6 +567,58 @@ export const AdminSettingsView: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+
+          {/* Dashboard Cards Visibility Section (Pantalla de Inicio) */}
+          <div className="pt-5 border-t border-slate-100 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <LayoutGrid className="w-4 h-4 text-indigo-600" />
+                  Tarjetas y Elementos de la Pantalla de Inicio
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Elige qué tarjetas y avisos se muestran u ocultan en la pantalla principal de Inicio
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {[
+                { id: 'welcome_card' as const, label: 'Tarjeta de Saludo & Accesos', icon: '👋' },
+                { id: 'wedding_banner' as const, label: 'Especial Boda & Cuenta Atrás', icon: '💒' },
+                { id: 'parent_approvals' as const, label: 'Avisos Pendientes de Padres', icon: '🔔' },
+                { id: 'fridge_notes' as const, label: 'Notas de la Nevera', icon: '📌' },
+                { id: 'catholic_intentions' as const, label: 'Intenciones de Oración', icon: '⛪' },
+                { id: 'birthdays_anniversaries' as const, label: 'Próximos Cumpleaños & Aniversarios', icon: '🎂' },
+                { id: 'summary_sections' as const, label: 'Tarjetas de Secciones Principales', icon: '🗂️' }
+              ].map(card => {
+                const isCardVisible = dashboardCardsVisibility[card.id] !== false;
+                return (
+                  <div 
+                    key={card.id}
+                    className={`p-3.5 rounded-2xl border flex items-center justify-between transition ${
+                      isCardVisible ? 'bg-indigo-50/40 border-indigo-200' : 'bg-slate-50 border-slate-200 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-lg">{card.icon}</span>
+                      <span className="font-bold text-xs text-slate-800">{card.label}</span>
+                    </div>
+
+                    <button
+                      onClick={() => updateDashboardCardVisibility(card.id, !isCardVisible)}
+                      className={`px-2.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 transition ${
+                        isCardVisible ? 'bg-indigo-600 text-white shadow-2xs' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {isCardVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      <span>{isCardVisible ? 'Visible' : 'Oculta'}</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Menu Order Editor with Drag & Drop and Up/Down Buttons */}
@@ -848,7 +907,6 @@ export const AdminSettingsView: React.FC = () => {
                 <div key={list.id} className="p-3 bg-white border border-indigo-200 rounded-xl flex items-center justify-between">
                   <div>
                     <p className="font-bold text-xs text-indigo-950">📋 {list.name}</p>
-                    <p className="text-[10px] text-slate-500">{list.categories.length} categorías configuradas</p>
                   </div>
                   {list.id !== 'general' && (
                     <button
@@ -1050,6 +1108,94 @@ export const AdminSettingsView: React.FC = () => {
                 className="px-4 py-2 bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-xs"
               >
                 Añadir Categoría
+              </button>
+            </div>
+          </div>
+
+          {/* Anniversary Types Categories Editor (Vertical List with Reordering & Drag and Drop) */}
+          <div className="space-y-3 bg-rose-50/50 p-4 rounded-2xl border border-rose-200">
+            <h4 className="font-bold text-xs text-rose-900 uppercase tracking-wider flex items-center gap-1.5">
+              <Heart className="w-4 h-4 text-rose-600" />
+              <span>Tipos de Aniversarios y Celebraciones (Arrastra o usa ▲/▼)</span>
+            </h4>
+
+            <div className="space-y-2 max-w-md">
+              {(customCategories.anniversaries || ['Boda', 'Santo', 'Bautizo', 'Comunión', 'Empresa/Trabajo', 'Otro']).map((cat, idx) => (
+                <div 
+                  key={cat} 
+                  draggable
+                  onDragStart={() => setDragItem({ type: 'anniversaries', index: idx })}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    if (dragItem && dragItem.type === 'anniversaries' && dragItem.index !== idx) {
+                      const arr = [...(customCategories.anniversaries || [])];
+                      const [removed] = arr.splice(dragItem.index, 1);
+                      arr.splice(idx, 0, removed);
+                      reorderCategories('anniversaries', arr);
+                      setDragItem(null);
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-white text-rose-950 font-bold rounded-xl text-xs flex items-center justify-between border border-rose-200 shadow-2xs cursor-grab active:cursor-grabbing hover:border-rose-400 transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <GripVertical className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{cat}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      disabled={idx === 0}
+                      onClick={() => {
+                        const arr = [...(customCategories.anniversaries || [])];
+                        [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+                        reorderCategories('anniversaries', arr);
+                      }}
+                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-rose-200 disabled:opacity-30 text-rose-900 font-extrabold"
+                      title="Subir posición"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      disabled={idx === (customCategories.anniversaries || []).length - 1}
+                      onClick={() => {
+                        const arr = [...(customCategories.anniversaries || [])];
+                        [arr[idx + 1], arr[idx]] = [arr[idx], arr[idx + 1]];
+                        reorderCategories('anniversaries', arr);
+                      }}
+                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-rose-200 disabled:opacity-30 text-rose-900 font-extrabold"
+                      title="Bajar posición"
+                    >
+                      ▼
+                    </button>
+                    <button
+                      onClick={() => setDeletingCatInfo({ type: 'anniversaries', name: cat })}
+                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg ml-1"
+                      title="Eliminar tipo de aniversario"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pt-1 max-w-sm">
+              <input
+                type="text"
+                value={newCatAnniversary}
+                onChange={e => setNewCatAnniversary(e.target.value)}
+                placeholder="Nuevo tipo de aniversario (ej: Graduación, Viaje...)"
+                className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs outline-none"
+              />
+              <button
+                onClick={() => {
+                  if (newCatAnniversary.trim()) {
+                    addCategory('anniversaries', newCatAnniversary.trim());
+                    setNewCatAnniversary('');
+                  }
+                }}
+                className="px-4 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl shadow-xs"
+              >
+                Añadir Tipo
               </button>
             </div>
           </div>
@@ -1265,7 +1411,6 @@ export const AdminSettingsView: React.FC = () => {
                       </div>
                       <div>
                         <h4 className="font-bold text-sm text-slate-900">{member.name}</h4>
-                        <p className="text-xs text-slate-500">{member.role}</p>
                       </div>
                     </div>
 

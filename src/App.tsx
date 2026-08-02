@@ -16,6 +16,7 @@ import { FinancesView } from './components/views/FinancesView';
 import { EmergencyContactsView } from './components/views/EmergencyContactsView';
 import { AdminSettingsView } from './components/views/AdminSettingsView';
 import { WeddingView } from './components/views/WeddingView';
+import { FamilyLogo } from './components/FamilyLogo';
 import { getUserPreferences, saveUserPreferences } from './lib/userPreferences';
 
 const VALID_TABS: ActiveTab[] = [
@@ -72,6 +73,17 @@ const MainContent: React.FC = () => {
     };
   }, []);
 
+  // Reset view to 'dashboard' whenever logged-in member changes
+  const prevMemberIdRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (currentMember?.id) {
+      if (prevMemberIdRef.current && prevMemberIdRef.current !== currentMember.id) {
+        setActiveTab('dashboard');
+      }
+      prevMemberIdRef.current = currentMember.id;
+    }
+  }, [currentMember?.id]);
+
   // Per-member scroll to top on view change
   useEffect(() => {
     if (!currentMember) return;
@@ -88,11 +100,13 @@ const MainContent: React.FC = () => {
   // Show loading spinner while restoring auth session or loading data from Supabase
   if (loading || !dataLoaded) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-900 to-purple-900 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="text-6xl animate-bounce">👨‍👩‍👧‍👦</div>
-          <p className="text-white font-bold text-lg animate-pulse">Cargando Portal Familiar…</p>
-          <p className="text-indigo-300 text-sm">Sincronizando datos de la familia</p>
+      <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-indigo-950 to-purple-950 flex items-center justify-center p-6">
+        <div className="text-center space-y-5 flex flex-col items-center">
+          <FamilyLogo size={96} animated={true} />
+          <div className="space-y-1">
+            <h2 className="text-white font-extrabold text-xl tracking-tight">Portal Familiar</h2>
+            <p className="text-indigo-200 text-xs font-medium animate-pulse">Sincronizando datos del hogar…</p>
+          </div>
         </div>
       </div>
     );

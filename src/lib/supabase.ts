@@ -3,8 +3,28 @@ import { createClient } from '@supabase/supabase-js';
 
 // Supabase project ID: vvvvyusnjwssdahqurqo
 export const SUPABASE_PROJECT_ID = 'vvvvyusnjwssdahqurqo';
-export const SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2dnZ5dXNuandzc2RhaHF1cnFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0OTMzMTAsImV4cCI6MjEwMTA2OTMxMH0.q52UKEPHxVyAReE6e2UF4EmMKlt86DFwZhEgavxg6eY';
+
+const DEFAULT_SUPABASE_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co`;
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2dnZ5dXNuandzc2RhaHF1cnFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0OTMzMTAsImV4cCI6MjEwMTA2OTMxMH0.q52UKEPHxVyAReE6e2UF4EmMKlt86DFwZhEgavxg6eY';
+
+function resolveSupabaseUrl(): string {
+  const envUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (typeof envUrl === 'string' && envUrl.trim().startsWith('http')) {
+    return envUrl.trim();
+  }
+  return DEFAULT_SUPABASE_URL;
+}
+
+function resolveSupabaseKey(): string {
+  const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (typeof envKey === 'string' && envKey.trim().startsWith('ey') && envKey.trim().length > 50) {
+    return envKey.trim();
+  }
+  return DEFAULT_SUPABASE_ANON_KEY;
+}
+
+export const SUPABASE_URL = resolveSupabaseUrl();
+export const SUPABASE_ANON_KEY = resolveSupabaseKey();
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -32,14 +52,54 @@ export function saveLocalData<T>(key: string, data: T): void {
 
 // ─── Generic Supabase CRUD helpers ───────────────────────────────────────────
 
+// Global diagnostic state for debugging Supabase connection issues
+export interface SupabaseStatus {
+  url: string;
+  lastTable: string;
+  lastError: string | null;
+  lastRowCount: number | null;
+  timestamp: string;
+}
+
+let lastStatus: SupabaseStatus = {
+  url: SUPABASE_URL,
+  lastTable: '',
+  lastError: null,
+  lastRowCount: null,
+  timestamp: ''
+};
+
+export function getSupabaseStatus(): SupabaseStatus {
+  return lastStatus;
+}
+
 /** Fetch all rows from a table, returns [] on error */
 export async function sbFetch<T>(table: string): Promise<T[]> {
+  lastStatus.lastTable = table;
+  lastStatus.timestamp = new Date().toLocaleTimeString();
   try {
     const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: true });
-    if (error) { console.error(`❌ sbFetch [${table}]:`, error.message, error.details); return []; }
+    if (error) {
+      console.warn(`⚠️ sbFetch [${table}] order by created_at error:`, error.message);
+      // Fallback query without ordering if created_at column is missing or ordering fails
+      const fallback = await supabase.from(table).select('*');
+      if (fallback.error) {
+        console.error(`❌ sbFetch [${table}]:`, fallback.error.message, fallback.error.details);
+        lastStatus.lastError = fallback.error.message;
+        lastStatus.lastRowCount = 0;
+        return [];
+      }
+      lastStatus.lastError = null;
+      lastStatus.lastRowCount = fallback.data?.length ?? 0;
+      return (fallback.data || []) as T[];
+    }
+    lastStatus.lastError = null;
+    lastStatus.lastRowCount = data?.length ?? 0;
     return (data || []) as T[];
-  } catch (e) {
+  } catch (e: any) {
     console.error(`❌ sbFetch [${table}] exception:`, e);
+    lastStatus.lastError = e?.message || String(e);
+    lastStatus.lastRowCount = 0;
     return [];
   }
 }

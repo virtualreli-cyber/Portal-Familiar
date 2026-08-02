@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { StickyNote as StickyNoteType } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 import { 
@@ -28,6 +29,8 @@ export const FridgeNotesView: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingNote, setEditingNote] = useState<StickyNoteType | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useBodyScrollLock(showModal || deletingId !== null);
 
   // Form state
   const [title, setTitle] = useState('');

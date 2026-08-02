@@ -12,6 +12,11 @@
   }
 }
 
+body.modal-open, html.modal-open {
+  overflow: hidden !important;
+  overscroll-behavior: contain;
+}
+
 /* Custom Scrollbar for mobile/desktop */
 ::-webkit-scrollbar {
   width: 6px;

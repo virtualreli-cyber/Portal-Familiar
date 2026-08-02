@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { PRAYERS, getTodaySaint } from '../../data/santoral';
 import { CatholicIntention } from '../../types';
 import { 
@@ -23,6 +24,8 @@ export const CatholicCornerView: React.FC = () => {
   const todaySaint = getTodaySaint();
   const [expandedPrayerId, setExpandedPrayerId] = useState<string | null>('rosario');
   const [showAddIntentionModal, setShowAddIntentionModal] = useState<boolean>(false);
+
+  useBodyScrollLock(showAddIntentionModal);
 
   // Intention form
   const [title, setTitle] = useState('');

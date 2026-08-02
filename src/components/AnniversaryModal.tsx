@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AnniversaryItem, FamilyMember } from '../types';
+import { useFamily } from '../context/FamilyContext';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { Heart, X, Check, Calendar, Tag, Users, FileText } from 'lucide-react';
 
 interface AnniversaryModalProps {
@@ -10,15 +12,6 @@ interface AnniversaryModalProps {
   allMembers: FamilyMember[];
 }
 
-const ANNIVERSARY_TYPES = [
-  'Boda',
-  'Santo',
-  'Bautizo',
-  'Comunión',
-  'Empresa/Trabajo',
-  'Otro'
-];
-
 export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
   isOpen,
   onClose,
@@ -26,34 +19,76 @@ export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
   editingAnniversary,
   allMembers
 }) => {
+  const { customCategories } = useFamily();
+  const anniversaryTypesList = customCategories.anniversaries || [
+    'Boda',
+    'Santo',
+    'Bautizo',
+    'Comunión',
+    'Empresa/Trabajo',
+    'Otro'
+  ];
+
   const [title, setTitle] = useState('');
   const [type, setType] = useState('Boda');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
 
+  useBodyScrollLock(isOpen);
+
   useEffect(() => {
     if (editingAnniversary) {
       setTitle(editingAnniversary.title || '');
-      setType(editingAnniversary.type || 'Boda');
+      const itemType = editingAnniversary.type || 'Boda';
+      setType(itemType);
       setDate(editingAnniversary.date || new Date().toISOString().split('T')[0]);
-      setMemberIds(editingAnniversary.memberIds || []);
+      const initialMembers = editingAnniversary.memberIds || [];
+      // Enforce Boda vs non-Boda constraints on edit
+      if (itemType === 'Boda') {
+        setMemberIds(initialMembers.slice(0, 2));
+      } else {
+        setMemberIds(initialMembers.slice(0, 1));
+      }
       setNotes(editingAnniversary.notes || '');
     } else {
       setTitle('');
       setType('Boda');
       setDate(new Date().toISOString().split('T')[0]);
-      setMemberIds(allMembers.map(m => m.id));
+      // Default initial selection: up to 2 for Boda
+      setMemberIds(allMembers.slice(0, 2).map(m => m.id));
       setNotes('');
     }
   }, [editingAnniversary, isOpen, allMembers]);
 
+  // Handle type change constraint
+  const handleTypeChange = (newType: string) => {
+    setType(newType);
+    if (newType !== 'Boda' && memberIds.length > 1) {
+      setMemberIds([memberIds[0]]);
+    }
+  };
+
   if (!isOpen) return null;
 
   const toggleMember = (mId: string) => {
-    setMemberIds(prev =>
-      prev.includes(mId) ? prev.filter(id => id !== mId) : [...prev, mId]
-    );
+    const isBoda = type === 'Boda';
+    if (isBoda) {
+      // Max 2 members for Boda
+      if (memberIds.includes(mId)) {
+        setMemberIds(prev => prev.filter(id => id !== mId));
+      } else {
+        if (memberIds.length < 2) {
+          setMemberIds(prev => [...prev, mId]);
+        } else {
+          // Replace second or last selected
+          setMemberIds(prev => [prev[0], mId]);
+        }
+      }
+    } else {
+      // Single member for all other anniversary types
+      setMemberIds([mId]);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -70,6 +105,8 @@ export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
 
     onClose();
   };
+
+  const isBodaType = type === 'Boda';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
@@ -88,6 +125,7 @@ export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition active-touch"
           >
@@ -120,10 +158,10 @@ export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
               </label>
               <select
                 value={type}
-                onChange={(e) => setType(e.target.value)}
+                onChange={(e) => handleTypeChange(e.target.value)}
                 className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-rose-500 focus:outline-none"
               >
-                {ANNIVERSARY_TYPES.map(t => (
+                {anniversaryTypesList.map(t => (
                   <option key={t} value={t}>{t}</option>
                 ))}
               </select>
@@ -132,7 +170,7 @@ export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
             <div>
               <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-rose-500" />
-                <span>Fecha *</span>
+                <span>Fecha u Origen *</span>
               </label>
               <input
                 type="date"
@@ -145,10 +183,22 @@ export const AnniversaryModal: React.FC<AnniversaryModalProps> = ({
           </div>
 
           <div>
-            <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5 text-rose-500" />
-              <span>Miembros Implicados</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="font-bold text-slate-700 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-rose-500" />
+                <span>Miembros Implicados</span>
+              </label>
+              <span className="text-[10px] font-extrabold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                {isBodaType ? 'Pareja (Máx. 2)' : 'Individual (1 persona)'}
+              </span>
+            </div>
+
+            <p className="text-[10px] text-slate-500 mb-2">
+              {isBodaType 
+                ? 'Puedes seleccionar hasta 2 miembros para representar la pareja.'
+                : 'Selecciona la persona titular de este aniversario o santo.'}
+            </p>
+
             <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-200">
               {allMembers.map(member => {
                 const isSelected = memberIds.includes(member.id);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { ShoppingItem, CategoryShopping } from '../../types';
 import { 
   ShoppingBag, 
@@ -47,6 +48,8 @@ export const ShoppingView: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingItem, setEditingItem] = useState<ShoppingItem | null>(null);
   const [deletingShoppingId, setDeletingShoppingId] = useState<string | null>(null);
+
+  useBodyScrollLock(showAddModal || deletingShoppingId !== null);
 
   // Quick add state
   const [quickName, setQuickName] = useState('');

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useFamily } from '../../context/FamilyContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { WeddingNote, WeddingTask } from '../../types';
 import { ConfirmModal } from '../ConfirmModal';
 import { 
@@ -48,6 +49,8 @@ export const WeddingView: React.FC = () => {
   // Confirmation Modal
   const [deletingType, setDeletingType] = useState<'task' | 'note' | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useBodyScrollLock(showTaskModal || showNoteModal || deletingId !== null);
 
   // Filter and sort tasks: Pending tasks ALWAYS appear ABOVE completed tasks!
   const filteredWeddingTasks = weddingTasks.filter(t => {

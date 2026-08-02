@@ -13,6 +13,7 @@ interface AuthContextType {
   // Auth actions
   loginWithPin: (memberId: string, pin: string) => boolean;
   logout: () => void;
+  loadMembers: () => Promise<void>;
   // Member management
   switchMember: (memberId: string) => void;
   updateMemberPoints: (memberId: string, deltaPoints: number) => void;
@@ -29,23 +30,40 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Convert Supabase row → FamilyMember
+function computeAgeFromBirthDate(birthDate?: string): number | undefined {
+  if (!birthDate) return undefined;
+  const birth = new Date(birthDate + 'T00:00:00');
+  if (isNaN(birth.getTime())) return undefined;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return Math.max(0, age);
+}
+
 function rowToMember(row: Record<string, unknown>): FamilyMember {
+  const birthDate = (row.birth_date as string) || (row.birthdate as string) || '';
+  const computedAge = computeAgeFromBirthDate(birthDate);
+  const rawAge = typeof row.age === 'number' && row.age > 0 ? row.age : undefined;
+
   return {
-    id: row.id as string,
-    name: row.name as string,
-    role: row.role as FamilyRole,
+    id: (row.id as string) || (row.member_id as string) || String(Math.random()),
+    name: (row.name as string) || (row.nombre as string) || 'Miembro',
+    role: (row.role as FamilyRole) || (row.rol as FamilyRole) || 'Padre',
     avatar: (row.avatar as string) || '👤',
     color: (row.color as string) || 'bg-indigo-600 text-white',
-    pinCode: (row.pin_code as string) || '1234',
-    email: row.email as string | undefined,
-    birthDate: (row.birth_date as string) || '',
-    age: row.age as number | undefined,
-    gender: row.gender as FamilyMember['gender'] | undefined,
+    pinCode: (row.pin_code as string) || (row.pincode as string) || (row.pin as string) || '1234',
+    email: (row.email as string) || undefined,
+    birthDate,
+    age: computedAge !== undefined ? computedAge : rawAge,
+    gender: (row.gender as FamilyMember['gender']) || undefined,
     points: (row.points as number) || 0,
-    phone: row.phone as string | undefined,
+    phone: (row.phone as string) || undefined,
     clothingSizes: row.clothing_sizes as FamilyMember['clothingSizes'],
-    allergies: (row.allergies as string[]) || [],
-    notes: row.notes as string | undefined,
+    allergies: Array.isArray(row.allergies) ? row.allergies : [],
+    notes: (row.notes as string) || undefined,
     permissions: row.permissions as RolePermissions | undefined,
   };
 }
@@ -86,15 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadMembers = useCallback(async () => {
     try {
       const rows = await sbFetch<Record<string, unknown>>('family_members');
-      let members: FamilyMember[] = [];
-      if (rows.length > 0) {
-        members = rows.map(rowToMember);
-      } else {
-        members = INITIAL_MEMBERS;
-        for (const m of members) {
-          await sbUpsert('family_members', memberToRow(m));
-        }
-      }
+      const members: FamilyMember[] = rows.map(rowToMember);
       setAllMembers(members);
 
       // Restore session synchronously before ending loading state
@@ -103,7 +113,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (savedId && sessionExpiry) {
         const expiry = parseInt(sessionExpiry, 10);
         if (Date.now() < expiry) {
-          const found = members.find(m => m.id === savedId) || INITIAL_MEMBERS.find(m => m.id === savedId);
+          const found = members.find(m => m.id === savedId);
           if (found) {
             setCurrentMember(found);
             setIsLoggedIn(true);
@@ -121,16 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (e) {
       console.warn('Error loading members from Supabase:', e);
-      // Fallback to initial members on error
-      setAllMembers(INITIAL_MEMBERS);
-      const savedId = localStorage.getItem('portal_fam_session_member_id');
-      if (savedId) {
-        const found = INITIAL_MEMBERS.find(m => m.id === savedId);
-        if (found) {
-          setCurrentMember(found);
-          setIsLoggedIn(true);
-        }
-      }
+      setAllMembers([]);
     } finally {
       setLoading(false);
     }
@@ -296,6 +297,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAdmin,
       loginWithPin,
       logout,
+      loadMembers,
       switchMember,
       updateMemberPoints,
       updateMemberDetails,

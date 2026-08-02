@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFamily } from '../../context/FamilyContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { ExpenseItem, ExpenseCategory } from '../../types';
 import { 
   Wallet, 
@@ -41,6 +42,8 @@ export const FinancesView: React.FC = () => {
     saveUserPreferences(currentMember.id, { financesCategoryFilter: cat });
   };
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+
+  useBodyScrollLock(showAddModal || deletingExpenseId !== null);
 
   // Form state
   const [title, setTitle] = useState('');
