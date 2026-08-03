@@ -37,12 +37,25 @@ export const ShoppingView: React.FC = () => {
   const [selectedCategory, setSelectedCategoryState] = useState<string>(() => 
     getUserPreferences(currentMember.id).shoppingCategoryFilter
   );
+  const [selectedStatus, setSelectedStatusState] = useState<'all' | 'pending' | 'completed'>(() => 
+    getUserPreferences(currentMember.id).shoppingStatusFilter || 'all'
+  );
 
-  const isFilterActive = selectedCategory !== 'Todas';
+  const isFilterActive = selectedCategory !== 'Todas' || selectedStatus !== 'all';
 
   const setSelectedCategory = (cat: string) => {
     setSelectedCategoryState(cat);
     saveUserPreferences(currentMember.id, { shoppingCategoryFilter: cat });
+  };
+
+  const setSelectedStatus = (status: 'all' | 'pending' | 'completed') => {
+    setSelectedStatusState(status);
+    saveUserPreferences(currentMember.id, { shoppingStatusFilter: status });
+  };
+
+  const handleClearFilters = () => {
+    setSelectedCategory('Todas');
+    setSelectedStatus('all');
   };
 
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
@@ -61,12 +74,33 @@ export const ShoppingView: React.FC = () => {
   const [estimatedPrice, setEstimatedPrice] = useState<string>('');
   const [urgent, setUrgent] = useState(false);
 
-  const filteredItems = shoppingItems.filter(item => {
+  const categoryFilteredItems = shoppingItems.filter(item => {
     if (selectedCategory !== 'Todas' && item.category !== selectedCategory) return false;
     return true;
   });
 
-  const completedCount = shoppingItems.filter(i => i.completed).length;
+  const pendingCountInCategory = categoryFilteredItems.filter(i => !i.completed).length;
+  const completedCountInCategory = categoryFilteredItems.filter(i => i.completed).length;
+
+  const filteredItems = categoryFilteredItems
+    .filter(item => {
+      if (selectedStatus === 'pending' && item.completed) return false;
+      if (selectedStatus === 'completed' && !item.completed) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // Uncompleted items automatically above completed items
+      if (a.completed !== b.completed) {
+        return Number(a.completed) - Number(b.completed);
+      }
+      // Within same status, urgent items first
+      if (a.urgent !== b.urgent) {
+        return (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0);
+      }
+      return 0;
+    });
+
+  const totalCompletedCount = shoppingItems.filter(i => i.completed).length;
   
   const totalEstPrice = filteredItems.reduce((acc, curr) => {
     if (!curr.completed && curr.estimatedPrice) {
@@ -164,14 +198,14 @@ export const ShoppingView: React.FC = () => {
             </div>
           )}
 
-          {completedCount > 0 && (
+          {totalCompletedCount > 0 && (
             <button
               onClick={clearCompletedShopping}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs flex items-center gap-1 active-touch"
               title="Limpiar comprados"
             >
               <Eraser className="w-3.5 h-3.5 text-slate-500" />
-              <span>Limpiar completados ({completedCount})</span>
+              <span>Limpiar completados ({totalCompletedCount})</span>
             </button>
           )}
 
@@ -210,7 +244,7 @@ export const ShoppingView: React.FC = () => {
           <div className="flex items-center justify-between text-xs font-bold text-emerald-900 border-b border-emerald-200 pb-2">
             <span>🛒 Filtros Activos</span>
             <button
-              onClick={() => setSelectedCategory('Todas')}
+              onClick={handleClearFilters}
               className="px-2 py-0.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-[10px] active-touch"
             >
               Limpiar Filtros ✕
@@ -218,18 +252,59 @@ export const ShoppingView: React.FC = () => {
           </div>
         )}
 
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Categoría</label>
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className={`w-full px-3 py-1.5 border rounded-xl text-xs font-semibold ${
-              selectedCategory !== 'Todas' ? 'bg-emerald-100 border-emerald-400 text-emerald-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-700'
-            }`}
-          >
-            <option value="Todas">Todas las categorías</option>
-            {shoppingCategoriesList.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Estado</label>
+            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setSelectedStatus('all')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition active-touch text-center ${
+                  selectedStatus === 'all'
+                    ? 'bg-white text-emerald-900 shadow-xs border border-slate-200/80 font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Todos ({categoryFilteredItems.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStatus('pending')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition active-touch text-center ${
+                  selectedStatus === 'pending'
+                    ? 'bg-emerald-600 text-white shadow-xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Por comprar ({pendingCountInCategory})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStatus('completed')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition active-touch text-center ${
+                  selectedStatus === 'completed'
+                    ? 'bg-slate-700 text-white shadow-xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Completados ({completedCountInCategory})
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Categoría</label>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className={`w-full px-3 py-2 border rounded-xl text-xs font-semibold ${
+                selectedCategory !== 'Todas' ? 'bg-emerald-100 border-emerald-400 text-emerald-900 font-bold' : 'bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+            >
+              <option value="Todas">Todas las categorías</option>
+              {shoppingCategoriesList.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -238,8 +313,18 @@ export const ShoppingView: React.FC = () => {
         {filteredItems.length === 0 ? (
           <div className="bg-white p-8 text-center rounded-3xl border border-slate-200 space-y-2">
             <Sparkles className="w-10 h-10 text-emerald-500 mx-auto" />
-            <p className="font-bold text-slate-800 text-sm">No hay productos en esta lista.</p>
-            <p className="text-xs text-slate-500">¡Escribe arriba lo que necesitas comprar!</p>
+            <p className="font-bold text-slate-800 text-sm">
+              {selectedStatus === 'pending'
+                ? '¡Genial! No tienes productos pendientes por comprar.'
+                : selectedStatus === 'completed'
+                ? 'No hay productos completados en la lista.'
+                : 'No hay productos en esta lista.'}
+            </p>
+            <p className="text-xs text-slate-500">
+              {selectedStatus === 'pending'
+                ? 'Añade productos arriba cuando los necesites.'
+                : '¡Escribe arriba lo que necesitas comprar!'}
+            </p>
           </div>
         ) : (
           filteredItems.map(item => (

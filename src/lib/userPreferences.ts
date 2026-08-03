@@ -12,6 +12,7 @@ export interface UserPreferences {
   tasksMemberFilter: string;
   shoppingCategoryFilter: string;
   shoppingStoreFilter: string;
+  shoppingStatusFilter?: 'all' | 'pending' | 'completed';
   financesCategoryFilter: string;
   lastViewTimestamps: Record<string, number>; // viewName -> timestamp ms
   lastScrollPositions: Record<string, number>; // viewName -> scrollY
@@ -25,6 +26,7 @@ const DEFAULT_PREFS: UserPreferences = {
   tasksMemberFilter: 'Todos',
   shoppingCategoryFilter: 'Todas',
   shoppingStoreFilter: 'Todos',
+  shoppingStatusFilter: 'all',
   financesCategoryFilter: 'Todas',
   lastViewTimestamps: {},
   lastScrollPositions: {}
